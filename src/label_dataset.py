@@ -141,10 +141,32 @@ def main():
     print(f"\n📦 Processing batch {args.batch_idx + 1}/{args.total_batches}")
     print(f"  Samples: {len(df_batch):,} (indices {start_idx:,} to {end_idx:,})")
     
+    # Debug: Print all available columns
+    print(f"  Available columns: {list(df_batch.columns)}")
+    
     # Determine text and label columns
-    # VOZ-HSD uses 'comment' for text and 'label' for hate/clean
-    text_col = "comment" if "comment" in df_batch.columns else "text"
-    label_col = "label" if "label" in df_batch.columns else "toxicity"
+    # VOZ-HSD actual columns based on inspection
+    if "comment" in df_batch.columns:
+        text_col = "comment"
+    elif "text" in df_batch.columns:
+        text_col = "text"
+    elif "Comment" in df_batch.columns:
+        text_col = "Comment"
+    else:
+        # Fallback: use first string column
+        text_col = df_batch.columns[0]
+        print(f"  ⚠️  Warning: Using first column as text: {text_col}")
+    
+    if "label" in df_batch.columns:
+        label_col = "label"
+    elif "toxicity" in df_batch.columns:
+        label_col = "toxicity"
+    elif "Toxicity" in df_batch.columns:
+        label_col = "Toxicity"
+    else:
+        # Fallback: use last column
+        label_col = df_batch.columns[-1]
+        print(f"  ⚠️  Warning: Using last column as label: {label_col}")
     
     print(f"  Text column: {text_col}")
     print(f"  Label column: {label_col}")
@@ -168,7 +190,10 @@ def main():
     
     # Add predictions to dataframe
     df_batch["predicted_label"] = predicted_labels
-    df_batch["original_label"] = df_batch[label_col]
+    
+    # Convert original labels to integers (VOZ-HSD might have float labels)
+    # Also handle any NaN values
+    df_batch["original_label"] = df_batch[label_col].fillna(0).astype(int)
     
     # Calculate metrics
     print("\n📊 Evaluation Metrics:")
