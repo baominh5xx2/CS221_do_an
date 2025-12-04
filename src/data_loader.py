@@ -137,6 +137,48 @@ def load_vihos() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, An
     return train_df, val_df, test_df, metadata
 
 
+def load_vihsd_processed() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """
+    Load ViHSD processed dataset (trinhtrantran122/ViHSD_processed).
+    
+    Returns:
+        Tuple of (train_df, val_df, test_df, metadata)
+    """
+    base_url = "https://huggingface.co/datasets/trinhtrantran122/ViHSD_processed/resolve/main/"
+    data_files = {
+        "train": base_url + "train_processed.csv",
+        "validation": base_url + "dev_processed.csv",
+        "test": base_url + "test_processed.csv",
+    }
+    
+    dataset = load_dataset("csv", data_files=data_files)
+    
+    train_df = dataset["train"].to_pandas()
+    val_df = dataset["validation"].to_pandas()
+    test_df = dataset["test"].to_pandas()
+    
+    # Map string labels to integers
+    # Based on inspection: 'none' -> 0, 'hate' -> 1
+    label_map = {"none": 0, "hate": 1}
+    
+    def map_label(label):
+        # Default to -1 if unknown, but we expect only none/hate
+        return label_map.get(str(label).strip(), -1)
+        
+    train_df["label_id"] = train_df["label"].apply(map_label)
+    val_df["label_id"] = val_df["label"].apply(map_label)
+    test_df["label_id"] = test_df["label"].apply(map_label)
+    
+    metadata = {
+        "name": "ViHSD_processed",
+        "text_col": "free_text",
+        "label_col": "label_id",
+        "num_labels": 2
+    }
+    
+    return train_df, val_df, test_df, metadata
+
+
 def load_dataset_by_name(dataset_name: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
     Load dataset by name.
@@ -154,6 +196,7 @@ def load_dataset_by_name(dataset_name: str) -> Tuple[pd.DataFrame, pd.DataFrame,
         "ViHSD": load_vihsd,
         "ViCTSD": load_victsd,
         "ViHOS": load_vihos,
+        "ViHSD_processed": load_vihsd_processed,
     }
     
     if dataset_name not in loaders:
