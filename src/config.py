@@ -4,6 +4,7 @@ Configuration classes for training and evaluation.
 
 import torch
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +34,12 @@ class TrainConfig:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         if self.output_dir is None:
-            self.output_dir = Path("models") / f"{self.dataset_name}_phobert"
+            # Extract model short name (e.g., "phobert-base" from "vinai/phobert-base")
+            model_short = self.model_name.split("/")[-1]
+            # Create timestamp: YYYYMMDD_HHMMSS
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Format: models/{dataset}_{model}_{timestamp}
+            self.output_dir = Path("models") / f"{self.dataset_name}_{model_short}_{timestamp}"
         
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
