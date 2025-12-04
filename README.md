@@ -202,6 +202,34 @@ bash scripts/run_train_encoder.sh --dataset ViHSD --epochs 3
 bash scripts/run_train_encoder.sh --dataset ViCTSD --epochs 5 --learning_rate 1e-5
 ```
 
+### 4. Dataset Auto-Labeling (VOZ-HSD)
+Re-labels the VOZ-HSD dataset using a trained model and compares with original labels. Supports parallel batch processing for large datasets.
+```bash
+# Edit scripts/run_label_dataset.sh to configure:
+# - MODEL_PATH: Path to your trained model
+# - TOTAL_BATCHES: Number of parallel batches (default: 10)
+# - BATCH_SIZE: Inference batch size (default: 32)
+
+bash scripts/run_label_dataset.sh
+```
+
+**Features:**
+- ✅ Parallel batch processing for faster labeling
+- ✅ Automatic comparison with original labels
+- ✅ Detailed metrics per batch and overall
+- ✅ Progress tracking with tqdm
+- ✅ Configurable batch size and parallelization
+
+**Manual usage for single batch:**
+```bash
+python src/label_dataset.py \
+    --model_path models/ViHSD_processed_phobert-base_20251204_112736 \
+    --split train \
+    --batch_idx 0 \
+    --total_batches 1 \
+    --batch_size 32
+```
+
 ## �📈 Results
 
 ### Performance Summary
@@ -241,6 +269,8 @@ vietnamese-hate-speech-detection/
 │   ├── train_encoder.py       # Encoder training script (MLM)
 │   ├── evaluate.py            # Evaluation script
 │   ├── inference.py           # Inference script
+│   ├── label_dataset.py       # Auto-labeling script
+│   ├── merge_labeled_batches.py  # Batch merging utility
 │   └── utils.py               # Helper functions
 │
 ├── notebooks/                 # Jupyter notebooks
@@ -252,6 +282,9 @@ vietnamese-hate-speech-detection/
 │   ├── ViHSD_phobert/
 │   ├── ViCTSD_phobert/
 │   └── ViHOS_phobert/
+│
+├── labeled_data/             # Auto-labeled datasets
+│   └── voz_hsd/              # VOZ-HSD labeling results
 │
 ├── results/                   # Experiment results
 │   ├── figures/               # Plots and visualizations
@@ -269,7 +302,8 @@ vietnamese-hate-speech-detection/
 └── scripts/                   # Utility scripts
     ├── download_data.sh       # Data download script
     ├── run_experiments.sh     # Batch experiment runner
-    └── run_train_encoder.sh   # Encoder training runner
+    ├── run_train_encoder.sh   # Encoder training runner
+    └── run_label_dataset.sh   # Dataset labeling runner
 ```
 
 ## 🔬 Reproducibility
