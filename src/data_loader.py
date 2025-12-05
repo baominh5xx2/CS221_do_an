@@ -195,12 +195,68 @@ def load_vihsd_processed() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Di
     return train_df, val_df, test_df, metadata
 
 
-def load_dataset_by_name(dataset_name: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """
+    Load VOZ-HSD 2M dataset from HuggingFace.
+    
+    Args:
+        split_name: "balanced" or "hate_only" - loads the corresponding CSV file directly
+        dev_ratio: Validation split ratio (default: 0.1)
+    
+    Returns:
+        Tuple of (train_df, val_df, test_df, metadata)
+    """
+    from sklearn.model_selection import train_test_split
+    
+    # Load the correct CSV file based on split_name
+    if split_name == "hate_only":
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/hate_only.csv"
+        print(f"  Loading hate_only.csv from HuggingFace...")
+        full_df = pd.read_csv(file_url)
+    elif split_name == "balanced":
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/balanced_dataset.csv"
+        print(f"  Loading balanced_dataset.csv from HuggingFace...")
+        full_df = pd.read_csv(file_url)
+    else:
+        # Default: load full dataset
+        print(f"  Loading default dataset from HuggingFace...")
+        dataset = load_dataset("Minhbao5xx2/VOZ-HSD_2M", "default")
+        full_df = dataset["train"].to_pandas()
+    
+    print(f"  Total samples: {len(full_df)}")
+    print(f"  Class distribution: {full_df['labels'].value_counts().to_dict()}")
+    
+    # Split based on dev_ratio
+    # test_ratio = dev_ratio (same as validation)
+    test_ratio = dev_ratio
+    
+    # First split: train vs (val + test)
+    train_df, temp_df = train_test_split(
+        full_df, test_size=(dev_ratio + test_ratio), random_state=42, stratify=full_df["labels"]
+    )
+    # Second split: val vs test (50-50 of remaining)
+    val_df, test_df = train_test_split(
+        temp_df, test_size=0.5, random_state=42, stratify=temp_df["labels"]
+    )
+    
+    metadata = {
+        "name": f"VOZ-HSD_2M_{split_name}",
+        "text_col": "texts",
+        "label_col": "labels",
+        "num_labels": 2  # Binary: 0=non-hate, 1=hate
+    }
+    
+    return train_df, val_df, test_df, metadata
+
+
+def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
     Load dataset by name.
     
     Args:
-        dataset_name: One of "ViHSD", "ViCTSD", "ViHOS"
+        dataset_name: One of "ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed", "Minhbao5xx2/VOZ-HSD_2M"
+        split_name: For VOZ-HSD_2M: "balanced" or "hate_only" (default: "balanced")
+        dev_ratio: Validation split ratio for VOZ-HSD_2M (default: 0.1)
     
     Returns:
         Tuple of (train_df, val_df, test_df, metadata)
@@ -215,10 +271,15 @@ def load_dataset_by_name(dataset_name: str) -> Tuple[pd.DataFrame, pd.DataFrame,
         "ViHSD_processed": load_vihsd_processed,
     }
     
+    # Handle VOZ-HSD 2M
+    if "VOZ-HSD_2M" in dataset_name or dataset_name == "Minhbao5xx2/VOZ-HSD_2M":
+        split_to_use = split_name if split_name else "balanced"
+        return load_voz_hsd_2m(split_to_use, dev_ratio)
+    
     if dataset_name not in loaders:
         raise ValueError(
             f"Unknown dataset: {dataset_name}. "
-            f"Available datasets: {list(loaders.keys())}"
+            f"Available datasets: {list(loaders.keys()) + ['Minhbao5xx2/VOZ-HSD_2M']}"
         )
     
     return loaders[dataset_name]()

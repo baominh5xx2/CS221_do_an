@@ -27,9 +27,10 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Train hate speech detection model")
     
-    parser.add_argument("--dataset", type=str, required=True, 
-                       choices=["ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed"],
-                       help="Dataset to train on")
+    parser.add_argument("--dataset", type=str, required=True,
+                       help="Dataset to train on (ViHSD, ViCTSD, ViHOS, ViHSD_processed, Minhbao5xx2/VOZ-HSD_2M)")
+    parser.add_argument("--split", type=str, default=None,
+                       help="For VOZ-HSD_2M: 'balanced' or 'hate_only' (default: balanced)")
     parser.add_argument("--model_name", type=str, default="vinai/phobert-base",
                        help="Pretrained model name")
     parser.add_argument("--max_length", type=int, default=256,
@@ -89,7 +90,7 @@ def main():
     
     # Load dataset
     print(f"\n📚 Loading {config.dataset_name} dataset...")
-    train_df, val_df, test_df, metadata = load_dataset_by_name(config.dataset_name)
+    train_df, val_df, test_df, metadata = load_dataset_by_name(config.dataset_name, args.split)
     
     print(f"  Train samples: {len(train_df)}")
     print(f"  Val samples: {len(val_df)}")
