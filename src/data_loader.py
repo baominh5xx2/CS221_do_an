@@ -8,21 +8,37 @@ from datasets import load_dataset
 from torch.utils.data import Dataset
 from typing import Tuple, Dict, Any
 
+try:
+    from underthesea import word_tokenize
+except ImportError:
+    word_tokenize = None  # Will raise later if PhoBERT requires it
+
 
 class TextDataset(Dataset):
     """PyTorch Dataset for text classification."""
     
-    def __init__(self, texts, labels, tokenizer, max_length):
+    def __init__(self, texts, labels, tokenizer, max_length, use_word_seg=False):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.use_word_seg = use_word_seg
+
+        if self.use_word_seg and word_tokenize is None:
+            raise ImportError(
+                "PhoBERT requires Vietnamese word segmentation. Install underthesea to proceed."
+            )
     
     def __len__(self):
         return len(self.texts)
     
+    def _maybe_segment(self, text: str) -> str:
+        if not self.use_word_seg:
+            return text
+        return " ".join(word_tokenize(text))
+    
     def __getitem__(self, idx):
-        text = str(self.texts[idx])
+        text = self._maybe_segment(str(self.texts[idx]))
         label = int(self.labels[idx])
         
         encoded = self.tokenizer(
@@ -223,9 +239,12 @@ def build_torch_dataset(df: pd.DataFrame, text_col: str, label_col: str,
     Returns:
         TextDataset instance
     """
+    use_word_seg = "phobert" in str(getattr(tokenizer, "name_or_path", "")).lower()
+
     return TextDataset(
         df[text_col].tolist(),
         df[label_col].tolist(),
         tokenizer,
-        max_length
+        max_length,
+        use_word_seg=use_word_seg,
     )

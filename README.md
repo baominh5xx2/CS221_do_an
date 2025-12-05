@@ -1,404 +1,138 @@
-# Vietnamese Hate Speech Detection using PhoBERT
+# Vietnamese Hate Speech Detection (PhoBERT)
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.9+-ee4c2c.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Minimal intro: fine-tune PhoBERT (and compatible HF models) to flag Vietnamese hate/toxic speech on ViHSD, ViCTSD, and ViHOS. Primary metric: macro F1. Pipelines include cosine LR with warmup, early stopping, GPU VRAM tracking, and CSV logging (per-epoch, run summary, test report).
 
-This repository contains the implementation of hate speech detection models for Vietnamese language using PhoBERT transformer architecture. The models are evaluated on three benchmark datasets: ViHSD, ViCTSD, and ViHOS.
+## Contents
+- Overview
+- Datasets
+- Install
+- Quick Start (scripts + notebook)
+- Scripts (detailed usage)
+- Training / Evaluation
+- Project layout
+- License
 
-## 📋 Table of Contents
+## Overview
+- Task: classify/flag Vietnamese hate or toxicity; macro F1 used for model selection.
+- Models: PhoBERT-base by default; any HF checkpoint works.
+- Data: ViHSD (multi-class), ViCTSD (binary toxicity), ViHOS (span -> binary has_hate).
+- Logging: `epoch_metrics.csv`, `run_summary.csv`, `test_report.csv`; GPU peak VRAM per epoch.
 
-- [Overview](#overview)
-- [Datasets](#datasets)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Training](#training)
-- [Evaluation](#evaluation)
-- [Results](#results)
-- [Project Structure](#project-structure)
-- [Citation](#citation)
-- [License](#license)
+## Datasets
+- ViHSD: https://huggingface.co/datasets/visolex/ViHSD — multi-class.
+- ViCTSD: https://huggingface.co/datasets/tarudesu/ViCTSD — binary toxicity.
+- ViHOS: https://github.com/phusroyal/ViHOS — span labels converted to binary has_hate.
 
-## 🎯 Overview
-
-Hate speech detection is a critical task in natural language processing, especially for low-resource languages like Vietnamese. This project implements a fine-tuned PhoBERT model for detecting hate speech across multiple Vietnamese datasets.
-
-**Key Features:**
-- 🚀 State-of-the-art PhoBERT-based architecture
-- 📊 Support for multiple Vietnamese hate speech datasets
-- 🔧 Configurable training pipeline with early stopping
-- 📈 Comprehensive evaluation metrics and logging
-- 💾 Automatic model checkpointing
-- 🎛️ GPU memory tracking and optimization
-
-## 📚 Datasets
-
-This project supports three Vietnamese hate speech detection datasets:
-
-### 1. ViHSD (Vietnamese Hate Speech Detection)
-- **Source:** [visolex/ViHSD](https://huggingface.co/datasets/visolex/ViHSD)
-- **Task:** Multi-class hate speech classification
-- **Classes:** Multiple hate speech categories
-
-### 2. ViCTSD (Vietnamese Constructive and Toxic Speech Detection)
-- **Source:** [tarudesu/ViCTSD](https://huggingface.co/datasets/tarudesu/ViCTSD)
-- **Task:** Binary toxicity classification
-- **Classes:** NONE (0), TOXIC (1)
-
-### 3. ViHOS (Vietnamese Hate and Offensive Spans)
-- **Source:** [ViHOS GitHub](https://github.com/phusroyal/ViHOS)
-- **Task:** Hate span detection
-- **Classes:** CLEAN (0), HAS_HATE_SPANS (1)
-
-## 🔧 Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- CUDA-compatible GPU (recommended)
-- 8GB+ GPU memory for training
-
-### Setup
-
-1. **Clone the repository:**
+## Install
 ```bash
-git clone https://github.com/yourusername/vietnamese-hate-speech-detection.git
-cd vietnamese-hate-speech-detection
-```
-
-2. **Create a virtual environment:**
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. **Install dependencies:**
-```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+echo "HF_TOKEN=your_hf_token" > .env
 ```
 
-4. **Set up Hugging Face token:**
+## Quick Start
+### Notebook
+Open `notebooks/train.ipynb` and run cells in order (EDA -> config -> train -> eval -> logging).
+
+### Scripts (common cases)
 ```bash
-# Create a .env file and add your token
-echo "HF_TOKEN=your_huggingface_token_here" > .env
+# Classification training
+python src/train.py --dataset ViHSD --model_name vinai/phobert-base --epochs 10 --batch_size 16
+
+# Evaluation
+python src/evaluate.py --model_path models/ViHSD_phobert --dataset ViHSD --output_dir results/
+
+# Inference
+python src/inference.py --model_path models/ViHSD_phobert --text "Noi dung can du doan"
+
+# Encoder domain adaptation (MLM)
+
+
+# Batch all datasets (classification)
+## 📧 Contact
 ```
 
-## 🚀 Quick Start
+## Scripts (detailed)
 
-### Using Jupyter Notebook
-
-1. **Start Jupyter:**
+### `scripts/run_train_encoder.sh` — MLM domain adaptation
+Adapts PhoBERT on a chosen dataset with Masked Language Modeling.
 ```bash
-jupyter notebook
+bash scripts/run_train_encoder.sh \
+  --dataset ViHSD \          # ViHSD | ViCTSD | ViHOS | ViHSD_processed
+  --model_name vinai/phobert-base \ 
+  --epochs 3 \               # MLM epochs
+  --batch_size 16 \          # MLM batch size
+  --learning_rate 2e-5 \     # MLM LR
+  --weight_decay 0.01 \      # optional
+  --mlm_probability 0.15 \   # mask ratio
+  --max_length 256 \         # max tokens
+  --output_dir models/ViHSD_encoder_mlm  # optional override
 ```
+Note: PhoBERT requires Vietnamese word segmentation; `underthesea` is enforced in code when using PhoBERT.
 
-2. **Open `notebooks/train.ipynb`** and run the cells sequentially.
-
-### Using Python Scripts
-
-1. **Train on a specific dataset:**
-```bash
-python src/train.py --dataset ViHSD --epochs 10 --batch_size 16
-```
-
-2. **Evaluate a trained model:**
-```bash
-python src/evaluate.py --model_path models/ViHSD_phobert --dataset ViHSD
-```
-
-3. **Run inference:**
-```bash
-python src/inference.py --model_path models/ViHSD_phobert --text "Your Vietnamese text here"
-```
-
-## 🎓 Training
-
-### Configuration
-
-Training parameters can be configured in `src/config.py` or passed as command-line arguments:
-
-```python
-# Key hyperparameters
-model_name = "vinai/phobert-base"
-max_length = 256
-batch_size = 16
-epochs = 10
-learning_rate = 2e-5
-weight_decay = 0.01
-warmup_ratio = 0.1
-patience = 3  # Early stopping patience
-```
-
-### Training Process
-
-The training pipeline includes:
-- ✅ Automatic data loading and preprocessing
-- ✅ Cosine learning rate scheduling with warmup
-- ✅ Early stopping based on validation F1 score
-- ✅ GPU memory monitoring
-- ✅ Comprehensive metrics logging
-- ✅ Model checkpointing
-
-### Example Training Command
-
-```bash
-python src/train.py \
-    --dataset ViHSD \
-    --model_name vinai/phobert-base \
-    --max_length 256 \
-    --batch_size 16 \
-    --epochs 10 \
-    --learning_rate 2e-5 \
-    --patience 3 \
-    --seed 42
-```
-
-## 📊 Evaluation
-
-### Metrics
-
-Models are evaluated using:
-- **Accuracy:** Overall classification accuracy
-- **Macro F1:** Primary metric for model selection
-- **Precision, Recall, F1:** Per-class metrics
-- **Classification Report:** Detailed per-class performance
-
-### Running Evaluation
-
-```bash
-python src/evaluate.py \
-    --model_path models/ViHSD_phobert \
-    --dataset ViHSD \
-    --output_dir results/
-```
-
-Results are saved in CSV format:
-- `epoch_metrics.csv`: Per-epoch training metrics
-- `run_summary.csv`: Overall run statistics
-- `test_report.csv`: Detailed test set classification report
-
-## �️ Bash Scripts
-
-This repository includes several bash scripts to automate common tasks. All scripts feature **real-time logging**, colored output, and automatic log saving.
-
-### 1. Data Preparation
-Checks environment, creates necessary directories, and verifies data availability.
-```bash
-bash scripts/download_data.sh
-```
-
-### 2. Batch Experiments
-Trains classification models on all three datasets (ViHSD, ViCTSD, ViHOS) sequentially. Useful for reproducing all results in one go.
+### `scripts/run_experiments.sh` — train classifiers on all datasets
+Runs classification training sequentially for ViHSD, ViCTSD, ViHOS with shared hyperparameters. Edit defaults inside if needed.
 ```bash
 bash scripts/run_experiments.sh
 ```
+Outputs: `models/<dataset>_phobert` plus CSV metrics.
 
-### 3. Encoder Training (Domain Adaptation)
-Fine-tunes the PhoBERT encoder using Masked Language Modeling (MLM) on a specific dataset. This adapts the pretrained model to the specific language/slang of the hate speech datasets.
+### `scripts/run_label_dataset.sh` — auto-label VOZ-HSD
+Splits inference into batches and merges outputs.
+- Edit in-script vars: `MODEL_PATH`, `TOTAL_BATCHES` (default 10), `BATCH_SIZE` (default 32).
 ```bash
-# Train encoder on ViHSD
-bash scripts/run_train_encoder.sh --dataset ViHSD --epochs 3
-
-# Train encoder on ViCTSD with custom settings
-bash scripts/run_train_encoder.sh --dataset ViCTSD --epochs 5 --learning_rate 1e-5
-```
-
-### 4. Dataset Auto-Labeling (VOZ-HSD)
-Re-labels the VOZ-HSD dataset using a trained model and compares with original labels. Supports parallel batch processing for large datasets.
-```bash
-# Edit scripts/run_label_dataset.sh to configure:
-# - MODEL_PATH: Path to your trained model
-# - TOTAL_BATCHES: Number of parallel batches (default: 10)
-# - BATCH_SIZE: Inference batch size (default: 32)
-
 bash scripts/run_label_dataset.sh
 ```
-
-**Features:**
-- ✅ Parallel batch processing for faster labeling
-- ✅ Automatic comparison with original labels
-- ✅ Detailed metrics per batch and overall
-- ✅ Progress tracking with tqdm
-- ✅ Configurable batch size and parallelization
-
-**Manual usage for single batch:**
+Manual single-batch:
 ```bash
 python src/label_dataset.py \
-    --model_path models/ViHSD_processed_phobert-base_20251204_112736 \
-    --split train \
-    --batch_idx 0 \
-    --total_batches 1 \
-    --batch_size 32
+  --model_path models/ViHSD_processed_phobert-base_YYYYMMDD_HHMMSS \
+  --split train --batch_idx 0 --total_batches 1 --batch_size 32
 ```
-
-## �📈 Results
-
-### Performance Summary
-
-| Dataset | Accuracy | Macro F1 | Precision | Recall |
-|---------|----------|----------|-----------|--------|
-| ViHSD   | TBD      | TBD      | TBD       | TBD    |
-| ViCTSD  | TBD      | TBD      | TBD       | TBD    |
-| ViHOS   | TBD      | TBD      | TBD       | TBD    |
-
-*Note: Run the training scripts to populate these results.*
-
-### Training Curves
-
-Training curves and visualizations can be found in the `results/` directory after training.
-
-## 📁 Project Structure
-
-```
-vietnamese-hate-speech-detection/
-├── README.md                   # This file
-├── requirements.txt            # Python dependencies
-├── setup.py                    # Package setup
-├── .env.example               # Environment variables template
-├── .gitignore                 # Git ignore rules
-│
-├── data/                      # Data directory (auto-downloaded)
-│   ├── raw/                   # Raw datasets
-│   └── processed/             # Preprocessed data
-│
-├── src/                       # Source code
-│   ├── __init__.py
-│   ├── config.py              # Configuration classes
-│   ├── data_loader.py         # Dataset loading utilities
-│   ├── model.py               # Model definitions
-│   ├── train.py               # Training script (Classification)
-│   ├── train_encoder.py       # Encoder training script (MLM)
-│   ├── evaluate.py            # Evaluation script
-│   ├── inference.py           # Inference script
-│   ├── label_dataset.py       # Auto-labeling script
-│   ├── merge_labeled_batches.py  # Batch merging utility
-│   └── utils.py               # Helper functions
-│
-├── notebooks/                 # Jupyter notebooks
-│   ├── train.ipynb            # Training notebook
-│   ├── eda.ipynb              # Exploratory data analysis
-│   └── inference_demo.ipynb   # Inference demonstration
-│
-├── models/                    # Saved models
-│   ├── ViHSD_phobert/
-│   ├── ViCTSD_phobert/
-│   └── ViHOS_phobert/
-│
-├── labeled_data/             # Auto-labeled datasets
-│   └── voz_hsd/              # VOZ-HSD labeling results
-│
-├── results/                   # Experiment results
-│   ├── figures/               # Plots and visualizations
-│   └── metrics/               # Metric logs
-│
-├── logs/                      # Execution logs
-│   ├── experiments/           # Training logs
-│   └── mlm/                   # Encoder training logs
-│
-├── tests/                     # Unit tests
-│   ├── test_data_loader.py
-│   ├── test_model.py
-│   └── test_utils.py
-│
-└── scripts/                   # Utility scripts
-    ├── download_data.sh       # Data download script
-    ├── run_experiments.sh     # Batch experiment runner
-    ├── run_train_encoder.sh   # Encoder training runner
-    └── run_label_dataset.sh   # Dataset labeling runner
-```
-
-## 🔬 Reproducibility
-
-To ensure reproducibility:
-
-1. **Set random seeds:**
-```python
-import torch
-import random
-import numpy as np
-
-seed = 42
-torch.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-np.random.seed(seed)
-random.seed(seed)
-```
-
-2. **Use the same environment:**
+## Training (classification)
+Key flags for `src/train.py`:
 ```bash
-pip install -r requirements.txt
+python src/train.py \
+  --dataset ViHSD \            # ViHSD | ViCTSD | ViHOS | ViHSD_processed
+  --model_name vinai/phobert-base \
+  --max_length 256 \
+  --batch_size 16 \
+  --epochs 10 \
+  --learning_rate 2e-5 \
+  --weight_decay 0.01 \
+  --warmup_ratio 0.1 \
+  --patience 3 \
+  --seed 42
+```
+Pipeline highlights:
+- Auto dataset load + column resolution.
+- Cosine LR with warmup; macro F1 for early stopping.
+- GPU peak VRAM + LR per epoch tracked.
+- Best checkpoint saved to `models/<dataset>_phobert`.
+- Logs: `epoch_metrics.csv`, `run_summary.csv`, `test_report.csv`.
+
+## Evaluation
+```bash
+python src/evaluate.py \
+  --model_path models/ViHSD_phobert \
+  --dataset ViHSD \
+  --output_dir results/
+```
+Writes classification report and metrics to the output dir.
+
+## Project layout
+```
+src/            # core code (train, evaluate, inference, data)
+scripts/        # runners (train, experiments, labeling, encoder MLM)
+notebooks/      # train.ipynb, eda.ipynb, inference_demo.ipynb
+models/         # saved checkpoints
+results/        # metrics/plots
+logs/           # execution logs
 ```
 
-3. **Document your runs:**
-All experiments are automatically logged with timestamps and configurations.
-
-## 📝 Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@misc{vietnamese-hate-speech-2024,
-  author = {Your Name},
-  title = {Vietnamese Hate Speech Detection using PhoBERT},
-  year = {2024},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/yourusername/vietnamese-hate-speech-detection}}
-}
-```
-
-### Dataset Citations
-
-**ViHSD:**
-```bibtex
-@inproceedings{vihsd,
-  title={ViHSD: Vietnamese Hate Speech Detection Dataset},
-  author={...},
-  booktitle={...},
-  year={...}
-}
-```
-
-**ViCTSD:**
-```bibtex
-@inproceedings{victsd,
-  title={ViCTSD: Vietnamese Constructive and Toxic Speech Detection},
-  author={...},
-  booktitle={...},
-  year={...}
-}
-```
-
-**ViHOS:**
-```bibtex
-@inproceedings{vihos,
-  title={ViHOS: Vietnamese Hate and Offensive Spans},
-  author={...},
-  booktitle={...},
-  year={...}
-}
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [VinAI Research](https://github.com/VinAIResearch) for PhoBERT
-- Dataset creators for ViHSD, ViCTSD, and ViHOS
-- Hugging Face for the Transformers library
-
-## 📧 Contact
+## License
+MIT. See `LICENSE`.
 
 For questions or feedback, please open an issue or contact:
 - **Email:** your.email@example.com

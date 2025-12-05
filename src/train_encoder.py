@@ -30,6 +30,11 @@ from config import TrainConfig
 from data_loader import load_dataset_by_name
 from utils import set_seed
 
+try:
+    from underthesea import word_tokenize
+except ImportError:
+    word_tokenize = None  # Will warn when PhoBERT is used
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train BERT Encoder (MLM)")
     
@@ -89,11 +94,20 @@ def main():
     # 2. Tokenizer & Model
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     model = AutoModelForMaskedLM.from_pretrained(args.model_name)
+
+    use_word_seg = "phobert" in args.model_name.lower()
+    if use_word_seg and word_tokenize is None:
+        raise ImportError(
+            "PhoBERT requires Vietnamese word segmentation. Install underthesea to proceed."
+        )
     
     # 3. Preprocessing
     def tokenize_function(examples):
+        texts = examples[text_col]
+        if use_word_seg:
+            texts = [" ".join(word_tokenize(t)) for t in texts]
         return tokenizer(
-            examples[text_col],
+            texts,
             padding="max_length",
             truncation=True,
             max_length=args.max_length,
