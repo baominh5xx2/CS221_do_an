@@ -201,12 +201,24 @@ def main():
     print(f"  Batch Size     : {args.batch_size}")
     print(f"  Epochs         : {args.epochs}")
     print(f"  Learning Rate  : {args.learning_rate}")
-    print(f"  Dev Ratio      : {args.dev_ratio}")
-    print("=" * 80)
     
-    # Load dataset
+    # Load dataset first to check if dev_ratio is actually used
     print(f"\n📚 Loading {args.dataset} dataset...")
     train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset, dev_ratio=args.dev_ratio)
+    
+    # Check if dev_ratio was used (for datasets without predefined splits)
+    # dev_ratio is used for: VOZ-HSD_2M and custom HuggingFace datasets without splits
+    uses_dev_ratio = (
+        "VOZ-HSD_2M" in args.dataset or 
+        args.dataset == "Minhbao5xx2/VOZ-HSD_2M" or
+        (args.dataset.count("/") == 1 and args.dataset not in ["ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed"])
+    )
+    
+    if uses_dev_ratio:
+        print(f"  Dev Ratio      : {args.dev_ratio} (used for splitting)")
+    else:
+        print(f"  Dev Ratio      : {args.dev_ratio} (not used - dataset has predefined splits)")
+    print("=" * 80)
     
     print(f"  Train samples: {len(train_df)}")
     print(f"  Val samples  : {len(val_df)}")
