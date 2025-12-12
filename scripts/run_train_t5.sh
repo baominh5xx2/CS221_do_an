@@ -63,7 +63,7 @@ ${YELLOW}Examples:${NC}
   $0 --dataset ViHSD --model vit5-base
 
   # T5 base on VOZ-HSD
-  $0 --dataset Minhbao5xx2/VOZ-HSD_2M --model t5-base
+  $0 --dataset Minhbao5xx2/re_VOZ-HSD --model t5-base
 
   # Custom dev ratio
   $0 --dataset ViHSD --model vit5-base --dev_ratio 0.15
