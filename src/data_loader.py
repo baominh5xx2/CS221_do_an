@@ -71,21 +71,21 @@ def load_vihsd() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, An
     
     # Try to get train/val/test splits directly
     if "train" in available_splits:
-        train_df = vihsd["train"].to_pandas()
+        train_df = vihsd["train"].to_pandas().dropna()
     else:
         raise ValueError(f"ViHSD dataset does not have 'train' split. Available: {available_splits}")
     
     if "validation" in available_splits:
-        val_df = vihsd["validation"].to_pandas()
+        val_df = vihsd["validation"].to_pandas().dropna()
     elif "val" in available_splits:
-        val_df = vihsd["val"].to_pandas()
+        val_df = vihsd["val"].to_pandas().dropna()
     else:
         # No validation split, create empty DataFrame
         val_df = pd.DataFrame(columns=train_df.columns)
         print("  ⚠️  No validation split found, using empty validation set")
     
     if "test" in available_splits:
-        test_df = vihsd["test"].to_pandas()
+        test_df = vihsd["test"].to_pandas().dropna()
     else:
         # No test split, create empty DataFrame
         test_df = pd.DataFrame(columns=train_df.columns)
@@ -119,9 +119,9 @@ def load_victsd() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, A
     val_set = load_dataset("tarudesu/ViCTSD", split="validation")
     test_set = load_dataset("tarudesu/ViCTSD", split="test")
     
-    train_df = train_set.to_pandas()
-    val_df = val_set.to_pandas()
-    test_df = test_set.to_pandas()
+    train_df = train_set.to_pandas().dropna()
+    val_df = val_set.to_pandas().dropna()
+    test_df = test_set.to_pandas().dropna()
     
     metadata = {
         "name": "ViCTSD",
@@ -150,9 +150,9 @@ def load_vihos() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, An
     
     vihos = load_dataset("csv", data_files=data_files)
     
-    train_df = vihos["train"].to_pandas()
-    val_df = vihos["validation"].to_pandas()
-    test_df = vihos["test"].to_pandas()
+    train_df = vihos["train"].to_pandas().dropna()
+    val_df = vihos["validation"].to_pandas().dropna()
+    test_df = vihos["test"].to_pandas().dropna()
     
     # Create binary label: has hate span or not
     def has_hate_span(spans_str):
@@ -190,9 +190,9 @@ def load_vihsd_processed() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Di
     
     dataset = load_dataset("csv", data_files=data_files)
     
-    train_df = dataset["train"].to_pandas()
-    val_df = dataset["validation"].to_pandas()
-    test_df = dataset["test"].to_pandas()
+    train_df = dataset["train"].to_pandas().dropna()
+    val_df = dataset["validation"].to_pandas().dropna()
+    test_df = dataset["test"].to_pandas().dropna()
     
     # Map string labels to integers
     # Based on inspection: 'none' -> 0, 'hate' -> 1
@@ -233,16 +233,16 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     if split_name == "hate_only":
         file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/hate_only.csv"
         print(f"  Loading hate_only.csv from HuggingFace...")
-        full_df = pd.read_csv(file_url)
+        full_df = pd.read_csv(file_url).dropna()
     elif split_name == "balanced":
         file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/balanced_dataset.csv"
         print(f"  Loading balanced_dataset.csv from HuggingFace...")
-        full_df = pd.read_csv(file_url)
+        full_df = pd.read_csv(file_url).dropna()
     else:
         # Default: load full dataset
         print(f"  Loading default dataset from HuggingFace...")
         dataset = load_dataset("Minhbao5xx2/VOZ-HSD_2M", "default")
-        full_df = dataset["train"].to_pandas()
+        full_df = dataset["train"].to_pandas().dropna()
     
     print(f"  Total samples: {len(full_df)}")
     print(f"  Class distribution: {full_df['labels'].value_counts().to_dict()}")
@@ -303,17 +303,17 @@ def load_from_huggingface(dataset_name: str, dev_ratio: float = 0.1) -> Tuple[pd
             test_df = None
             
             if "train" in available_splits:
-                train_df = dataset["train"].to_pandas()
+                train_df = dataset["train"].to_pandas().dropna()
             if "validation" in available_splits or "val" in available_splits:
                 val_df = dataset.get("validation", dataset.get("val", None))
                 if val_df is not None:
-                    val_df = val_df.to_pandas()
+                    val_df = val_df.to_pandas().dropna()
             if "test" in available_splits:
-                test_df = dataset["test"].to_pandas()
+                test_df = dataset["test"].to_pandas().dropna()
             
             # If no splits, use the first available split and split it
             if train_df is None and len(available_splits) > 0:
-                full_df = dataset[available_splits[0]].to_pandas()
+                full_df = dataset[available_splits[0]].to_pandas().dropna()
                 # Try to detect label column for stratification
                 label_col_for_split = None
                 for col in ["label", "labels", "Label", "Labels", "toxicity", "Toxicity", "label_id"]:
