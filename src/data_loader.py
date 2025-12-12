@@ -231,11 +231,11 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     
     # Load the correct CSV file based on split_name
     if split_name == "hate_only":
-        file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/hate_only.csv"
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/blob/main/data_full_date.csv"
         print(f"  Loading hate_only.csv from HuggingFace...")
         full_df = pd.read_csv(file_url).dropna()
     elif split_name == "balanced":
-        file_url = "https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M/resolve/main/balanced_dataset.csv"
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/blob/main/data_balance.csv"
         print(f"  Loading balanced_dataset.csv from HuggingFace...")
         full_df = pd.read_csv(file_url).dropna()
     else:
@@ -263,7 +263,7 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     metadata = {
         "name": f"VOZ-HSD_2M_{split_name}",
         "text_col": "texts",
-        "label_col": "labels",
+        "label_col": "predicted_labels",
         "num_labels": 2  # Binary: 0=non-hate, 1=hate
     }
     
