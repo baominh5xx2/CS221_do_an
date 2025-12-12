@@ -24,8 +24,6 @@ def parse_args():
                        help="Path to trained model directory")
     parser.add_argument("--dataset", type=str, required=True,
                        help="Dataset to evaluate on (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M)")
-    parser.add_argument("--dataset_split", type=str, default=None,
-                       help="For VOZ-HSD_2M: 'balanced' or 'hate_only'")
     parser.add_argument("--batch_size", type=int, default=16,
                        help="Evaluation batch size")
     parser.add_argument("--max_length", type=int, default=256,
@@ -60,7 +58,7 @@ def main():
     
     # Load dataset
     print(f"\n📚 Loading {args.dataset} dataset...")
-    train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset, args.dataset_split)
+    train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset)
     
     # Select split
     split_map = {"train": train_df, "val": val_df, "test": test_df}
