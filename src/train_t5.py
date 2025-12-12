@@ -14,6 +14,13 @@ import pandas as pd
 from datetime import datetime
 from sklearn.metrics import f1_score
 from datasets import Dataset
+import nltk
+
+# Download punkt tokenizer for sentence tokenization
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 from transformers import (
     Seq2SeqTrainer,
@@ -210,7 +217,7 @@ def main():
     # dev_ratio is used for: VOZ-HSD_2M and custom HuggingFace datasets without splits
     uses_dev_ratio = (
         "VOZ-HSD_2M" in args.dataset or 
-        args.dataset == "Minhbao5xx2/VOZ-HSD_2M" or
+        args.dataset == "Minhbao5xx2/re_VOZ-HSD" or
         (args.dataset.count("/") == 1 and args.dataset not in ["ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed"])
     )
     
@@ -317,6 +324,7 @@ def main():
         logging_strategy="epoch",
         save_strategy="epoch",
         eval_strategy="epoch",
+        eval_strategy="epoch",  # Also set for compatibility
         load_best_model_at_end=True,
         save_total_limit=1,
         do_train=True,
@@ -331,7 +339,7 @@ def main():
     # Data collator
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
     
-    # Compute metrics function
+    # Compute metrics function (matching original paper implementation)
     def compute_metrics(eval_pred):
         predictions, labels = eval_pred
         decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
@@ -339,22 +347,18 @@ def main():
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
         
-        # Calculate accuracy (exact match)
-        exact_matches = sum([1 for p, l in zip(decoded_preds, decoded_labels) if p.strip() == l.strip()])
-        accuracy = exact_matches / len(decoded_preds) if len(decoded_preds) > 0 else 0.0
+        # Apply NLTK sentence tokenization (as in original paper)
+        # Rouge expects a newline after each sentence
+        decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
+        decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
         
-        # Calculate F1 macro by mapping strings to integers
-        # Get unique labels from both predictions and ground truth
-        all_labels = set(decoded_labels + decoded_preds)
-        label_to_id = {label: idx for idx, label in enumerate(sorted(all_labels))}
-        
-        pred_ids = [label_to_id.get(p.strip(), 0) for p in decoded_preds]
-        label_ids = [label_to_id.get(l.strip(), 0) for l in decoded_labels]
-        
+        # Calculate F1 macro directly on strings (as in original paper)
         try:
-            f1_macro = f1_score(label_ids, pred_ids, average='macro', zero_division=0)
+            f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
         except Exception as e:
-            # Fallback to accuracy if F1 calculation fails
+            # Fallback: calculate accuracy if F1 fails
+            exact_matches = sum([1 for p, l in zip(decoded_preds, decoded_labels) if p.strip() == l.strip()])
+            accuracy = exact_matches / len(decoded_preds) if len(decoded_preds) > 0 else 0.0
             f1_macro = accuracy
         
         # Add mean generated length
@@ -362,7 +366,6 @@ def main():
         gen_len_mean = np.mean(prediction_lens) if len(prediction_lens) > 0 else 0.0
         
         return {
-            'accuracy': round(accuracy * 100, 4),
             'f1_macro': round(f1_macro * 100, 4), 
             'gen_len': round(gen_len_mean, 4)
         }
