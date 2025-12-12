@@ -12,7 +12,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 from datasets import Dataset
 import nltk
 
@@ -333,6 +333,8 @@ def main():
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
+        generation_max_length=8,  # Limit generation length to avoid "phun văn"
+        generation_num_beams=1,  # Use greedy decoding for faster evaluation
         report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
@@ -342,26 +344,32 @@ def main():
     # Data collator
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
     
-    # Compute metrics function (matching original paper implementation exactly)
+    # Valid labels for normalization
+    VALID = {"CLEAN", "OFFENSIVE", "HATE", "NONE", "TOXIC"}
+    
+    def norm(s):
+        """Normalize label: strip, uppercase, take first word, validate."""
+        s = (s or "").strip().upper()
+        s = s.split()[0] if s else ""
+        return s if s in VALID else "OTHER"
+    
+    # Compute metrics function (with label normalization to avoid string mismatch)
     def compute_metrics(eval_pred):
-        predictions, labels = eval_pred
-        decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
-        # Replace -100 in the labels as we can't decode them.
+        preds, labels = eval_pred
+        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        
+        # Replace -100 in the labels as we can't decode them
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
         
-        # Rouge expects a newline after each sentence
-        decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
-        decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
+        # Normalize labels to avoid string mismatch (case/whitespace differences)
+        y_pred = [norm(x) for x in decoded_preds]
+        y_true = [norm(x) for x in decoded_labels]
         
-        # Calculate F1 macro
-        f1_macro = f1_score(decoded_labels, decoded_preds, average='macro')
-        
-        # Add mean generated length
-        prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
-        gen_len_mean = np.mean(prediction_lens)
-        
-        return {'f1_macro': round(f1_macro * 100, 4), 'gen_len': round(gen_len_mean, 4)}
+        return {
+            "accuracy": accuracy_score(y_true, y_pred) * 100,
+            "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0) * 100,
+        }
     
     # Create trainer
     trainer = Seq2SeqTrainer(
