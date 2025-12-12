@@ -63,7 +63,7 @@ def load_vihsd() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, An
     Returns:
         Tuple of (train_df, val_df, test_df, metadata)
     """
-    vihsd = load_dataset("visolex/ViHSD")
+    vihsd = load_dataset("sonlam1102/vihsd")
     
     train_set = vihsd.filter(lambda ex: ex["type"] == "train")
     val_set = vihsd.filter(lambda ex: ex["type"] == "validation")
