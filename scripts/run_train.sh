@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Train T5/ViT5 models for Vietnamese Hate Speech Detection
-# Encoder-decoder architecture with text-to-text format
+# Train PhoBERT/BERT models for Vietnamese Hate Speech Detection
+# Encoder-only architecture for classification
 
 # Colors
 GREEN='\033[0;32m'
@@ -14,62 +14,57 @@ log() { echo -e "${CYAN}[$(date '+%H:%M:%S')]${NC} $1"; }
 
 # Default params
 DATASET=""
-MODEL_PRESET="vit5-base"
-EPOCHS=""
-BATCH_SIZE=""
-LR=""
-MAX_LEN=""
-DEV_RATIO=""
+MODEL_NAME="vinai/phobert-base"
+EPOCHS="10"
+BATCH_SIZE="16"
+MAX_LENGTH="256"
+LR="2e-5"
+WEIGHT_DECAY="0.01"
+WARMUP_RATIO="0.1"
+PATIENCE="3"
+SEED="42"
 OUTPUT_DIR=""
-
-# Model presets: model -> (hf_name, epochs, batch_size, lr, max_len)
-declare -A MODELS
-MODELS[t5-small]="google/t5-small:5:16:1e-4:512"
-MODELS[t5-base]="google/t5-base:5:8:1e-4:512"
-MODELS[t5-large]="google/t5-large:3:4:5e-5:512"
-MODELS[vit5-base]="VietAI/vit5-base:5:8:1e-4:512"
-MODELS[vit5-large]="VietAI/vit5-large:3:4:5e-5:512"
-MODELS[vit5-large-1024]="VietAI/vit5-large-1024-vietnews:3:2:3e-5:768"
 
 usage() {
     cat <<EOF
-${GREEN}T5/ViT5 Training Script for Vietnamese Hate Speech Detection${NC}
+${GREEN}PhoBERT/BERT Training Script for Vietnamese Hate Speech Detection${NC}
 
-Usage: $0 --dataset DATASET --model MODEL [OPTIONS]
+Usage: $0 --dataset DATASET [OPTIONS]
 
 ${YELLOW}Required:${NC}
-  --dataset DATASET     Dataset name (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M)
-
-${YELLOW}Model Presets (auto-configured):${NC}
-  t5-small          google/t5-small       (60M)   batch=16, lr=1e-4, max_len=512
-  t5-base           google/t5-base        (220M)  batch=8,  lr=1e-4, max_len=512
-  t5-large          google/t5-large       (770M)  batch=4,  lr=5e-5, max_len=512
-  vit5-base         VietAI/vit5-base      (220M)  batch=8,  lr=1e-4, max_len=512
-  vit5-large        VietAI/vit5-large     (770M)  batch=4,  lr=5e-5, max_len=512
-  vit5-large-1024   VietAI/vit5-large-1024-vietnews (770M) batch=2, lr=3e-5, max_len=768
+  --dataset DATASET     Dataset name (ViHSD, ViCTSD, ViHOS, ViHSD_processed, Minhbao5xx2/VOZ-HSD_2M)
 
 ${YELLOW}Options:${NC}
-  --model MODEL                 Model preset (default: vit5-base)
-  --epochs N                    Override epochs
-  --batch_size N                Override batch size
-  --learning_rate LR            Override learning rate
-  --max_length LEN              Override max length
-  --dev_ratio R                 Validation split ratio (default: 0.1)
+  --model_name MODEL            HuggingFace model (default: vinai/phobert-base)
+  --epochs N                    Number of epochs (default: 10)
+  --batch_size N                Batch size (default: 16)
+  --max_length LEN              Max sequence length (default: 256)
+  --learning_rate LR            Learning rate (default: 2e-5)
+  --weight_decay WD             Weight decay (default: 0.01)
+  --warmup_ratio RATIO          Warmup ratio (default: 0.1)
+  --patience N                  Early stopping patience (default: 3)
+  --seed N                      Random seed (default: 42)
   --output_dir PATH             Custom output directory
   -h, --help                    Show this help message
 
+${YELLOW}Model Presets:${NC}
+  vinai/phobert-base            PhoBERT base (135M) - Vietnamese
+  vinai/phobert-large           PhoBERT large (370M) - Vietnamese
+  uitnlp/visobert               ViSoBERT (135M) - Vietnamese social media
+  bert-base-multilingual-cased  mBERT (110M) - Multilingual
+
 ${YELLOW}Examples:${NC}
-  # ViT5 base on ViHSD
-  $0 --dataset ViHSD --model vit5-base
+  # PhoBERT base on ViHSD
+  $0 --dataset ViHSD
 
-  # T5 base on VOZ-HSD
-  $0 --dataset Minhbao5xx2/VOZ-HSD_2M --model t5-base
+  # ViSoBERT on ViHSD_processed
+  $0 --dataset ViHSD_processed --model_name uitnlp/visobert --max_length 128
 
-  # Custom dev ratio
-  $0 --dataset ViHSD --model vit5-base --dev_ratio 0.15
+  # PhoBERT on VOZ-HSD
+  $0 --dataset Minhbao5xx2/VOZ-HSD_2M --epochs 5
 
-  # T5 small (fastest, for testing)
-  $0 --dataset ViHSD --model t5-small --epochs 2
+  # Custom hyperparameters
+  $0 --dataset ViHSD --epochs 20 --batch_size 32 --learning_rate 3e-5
 
 EOF
 }
@@ -78,12 +73,15 @@ EOF
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dataset) DATASET="$2"; shift 2 ;;
-        --model) MODEL_PRESET="$2"; shift 2 ;;
+        --model_name) MODEL_NAME="$2"; shift 2 ;;
         --epochs) EPOCHS="$2"; shift 2 ;;
         --batch_size) BATCH_SIZE="$2"; shift 2 ;;
+        --max_length) MAX_LENGTH="$2"; shift 2 ;;
         --learning_rate) LR="$2"; shift 2 ;;
-        --max_length) MAX_LEN="$2"; shift 2 ;;
-        --dev_ratio) DEV_RATIO="$2"; shift 2 ;;
+        --weight_decay) WEIGHT_DECAY="$2"; shift 2 ;;
+        --warmup_ratio) WARMUP_RATIO="$2"; shift 2 ;;
+        --patience) PATIENCE="$2"; shift 2 ;;
+        --seed) SEED="$2"; shift 2 ;;
         --output_dir) OUTPUT_DIR="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo -e "${RED}Unknown arg: $1${NC}"; usage; exit 1 ;;
@@ -97,58 +95,46 @@ if [ -z "$DATASET" ]; then
     exit 1
 fi
 
-# Validate model preset
-if [ -z "${MODELS[$MODEL_PRESET]}" ]; then
-    echo -e "${RED}Error: Unknown model preset '$MODEL_PRESET'${NC}"
-    echo "Available models: ${!MODELS[@]}"
-    exit 1
-fi
-
-# Parse preset config
-IFS=':' read -r MODEL_NAME DEFAULT_EPOCHS DEFAULT_BATCH DEFAULT_LR DEFAULT_LEN <<< "${MODELS[$MODEL_PRESET]}"
-
-# Apply overrides (CLI > preset)
-EPOCHS=${EPOCHS:-$DEFAULT_EPOCHS}
-BATCH_SIZE=${BATCH_SIZE:-$DEFAULT_BATCH}
-LR=${LR:-$DEFAULT_LR}
-MAX_LEN=${MAX_LEN:-$DEFAULT_LEN}
-DEV_RATIO=${DEV_RATIO:-0.1}
-
 # Print configuration
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           T5/ViT5 Training for Hate Speech Detection         ║${NC}"
+echo -e "${GREEN}║      PhoBERT/BERT Training for Hate Speech Detection        ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${CYAN}Configuration:${NC}"
 echo "  Dataset              : $DATASET"
-echo "  Model Preset         : $MODEL_PRESET"
-echo "  HuggingFace Model    : $MODEL_NAME"
+echo "  Model                : $MODEL_NAME"
 echo "  Epochs               : $EPOCHS"
 echo "  Batch Size           : $BATCH_SIZE"
+echo "  Max Length           : $MAX_LENGTH"
 echo "  Learning Rate        : $LR"
-echo "  Max Length           : $MAX_LEN"
-echo "  Dev Ratio            : $DEV_RATIO"
+echo "  Weight Decay         : $WEIGHT_DECAY"
+echo "  Warmup Ratio         : $WARMUP_RATIO"
+echo "  Patience             : $PATIENCE"
+echo "  Seed                 : $SEED"
 [ -n "$OUTPUT_DIR" ] && echo "  Output Dir           : $OUTPUT_DIR"
 echo ""
 
 # Create logs directory
-mkdir -p logs/t5
+mkdir -p logs/train
 
 # Build command
-CMD="python src/train_t5.py"
+CMD="python src/train.py"
 CMD="$CMD --dataset \"$DATASET\""
 CMD="$CMD --model_name \"$MODEL_NAME\""
 CMD="$CMD --epochs $EPOCHS"
 CMD="$CMD --batch_size $BATCH_SIZE"
+CMD="$CMD --max_length $MAX_LENGTH"
 CMD="$CMD --learning_rate $LR"
-CMD="$CMD --max_length $MAX_LEN"
-CMD="$CMD --dev_ratio $DEV_RATIO"
+CMD="$CMD --weight_decay $WEIGHT_DECAY"
+CMD="$CMD --warmup_ratio $WARMUP_RATIO"
+CMD="$CMD --patience $PATIENCE"
+CMD="$CMD --seed $SEED"
 
 [ -n "$OUTPUT_DIR" ] && CMD="$CMD --output_dir \"$OUTPUT_DIR\""
 
 # Run training
-echo -e "${GREEN}🚀 Starting T5 training...${NC}"
+echo -e "${GREEN}🚀 Starting PhoBERT/BERT training...${NC}"
 echo ""
 
 eval $CMD

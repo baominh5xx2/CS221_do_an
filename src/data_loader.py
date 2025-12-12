@@ -249,20 +249,172 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     return train_df, val_df, test_df, metadata
 
 
-def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+def load_from_huggingface(dataset_name: str, dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
-    Load dataset by name.
+    Load dataset directly from HuggingFace Hub.
     
     Args:
-        dataset_name: One of "ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed", "Minhbao5xx2/VOZ-HSD_2M"
-        split_name: For VOZ-HSD_2M: "balanced" or "hate_only" (default: "balanced")
-        dev_ratio: Validation split ratio for VOZ-HSD_2M (default: 0.1)
+        dataset_name: HuggingFace dataset identifier (e.g., "username/dataset_name")
+        dev_ratio: Validation split ratio (default: 0.1)
     
     Returns:
         Tuple of (train_df, val_df, test_df, metadata)
     
     Raises:
-        ValueError: If dataset_name is not recognized
+        Exception: If dataset cannot be loaded from HuggingFace
+    """
+    from sklearn.model_selection import train_test_split
+    
+    print(f"  Attempting to load '{dataset_name}' from HuggingFace Hub...")
+    
+    try:
+        # Try to load with standard splits first
+        try:
+            dataset = load_dataset(dataset_name)
+            
+            # Check available splits
+            available_splits = list(dataset.keys())
+            print(f"  Available splits: {available_splits}")
+            
+            # Try to get train/val/test splits
+            train_df = None
+            val_df = None
+            test_df = None
+            
+            if "train" in available_splits:
+                train_df = dataset["train"].to_pandas()
+            if "validation" in available_splits or "val" in available_splits:
+                val_df = dataset.get("validation", dataset.get("val", None))
+                if val_df is not None:
+                    val_df = val_df.to_pandas()
+            if "test" in available_splits:
+                test_df = dataset["test"].to_pandas()
+            
+            # If no splits, use the first available split and split it
+            if train_df is None and len(available_splits) > 0:
+                full_df = dataset[available_splits[0]].to_pandas()
+                # Try to detect label column for stratification
+                label_col_for_split = None
+                for col in ["label", "labels", "Label", "Labels", "toxicity", "Toxicity", "label_id"]:
+                    if col in full_df.columns:
+                        label_col_for_split = col
+                        break
+                
+                # Split into train/val/test
+                test_ratio = dev_ratio
+                if label_col_for_split is not None:
+                    # Use stratified split if label column found
+                    train_df, temp_df = train_test_split(
+                        full_df, test_size=(dev_ratio + test_ratio), random_state=42,
+                        stratify=full_df[label_col_for_split]
+                    )
+                    val_df, test_df = train_test_split(
+                        temp_df, test_size=0.5, random_state=42,
+                        stratify=temp_df[label_col_for_split]
+                    )
+                else:
+                    # Regular split without stratification
+                    train_df, temp_df = train_test_split(
+                        full_df, test_size=(dev_ratio + test_ratio), random_state=42
+                    )
+                    val_df, test_df = train_test_split(
+                        temp_df, test_size=0.5, random_state=42
+                    )
+            
+            if train_df is None:
+                raise ValueError(f"Could not find train split in dataset {dataset_name}")
+            
+            # Auto-detect text and label columns
+            text_col = None
+            label_col = None
+            
+            # Common text column names
+            text_candidates = ["text", "texts", "comment", "Comment", "content", "free_text", "sentence", "input"]
+            # Common label column names
+            label_candidates = ["label", "labels", "Label", "Labels", "toxicity", "Toxicity", "label_id", "target"]
+            
+            for col in text_candidates:
+                if col in train_df.columns:
+                    text_col = col
+                    break
+            
+            for col in label_candidates:
+                if col in train_df.columns:
+                    label_col = col
+                    break
+            
+            # Fallback: use first string column as text, last numeric column as label
+            if text_col is None:
+                for col in train_df.columns:
+                    if train_df[col].dtype == 'object' or train_df[col].dtype == 'string':
+                        text_col = col
+                        break
+            
+            if label_col is None:
+                for col in reversed(train_df.columns):
+                    if train_df[col].dtype in ['int64', 'float64', 'int32', 'float32']:
+                        label_col = col
+                        break
+            
+            if text_col is None or label_col is None:
+                raise ValueError(
+                    f"Could not auto-detect text/label columns. "
+                    f"Available columns: {list(train_df.columns)}"
+                )
+            
+            print(f"  Auto-detected columns: text='{text_col}', label='{label_col}'")
+            
+            # Ensure label is integer
+            train_df[label_col] = train_df[label_col].astype(int)
+            if val_df is not None:
+                val_df[label_col] = val_df[label_col].astype(int)
+            if test_df is not None:
+                test_df[label_col] = test_df[label_col].astype(int)
+            
+            # Create metadata
+            num_labels = int(pd.concat([
+                train_df[label_col],
+                val_df[label_col] if val_df is not None else pd.Series(),
+                test_df[label_col] if test_df is not None else pd.Series()
+            ]).nunique())
+            
+            metadata = {
+                "name": dataset_name.split("/")[-1],
+                "text_col": text_col,
+                "label_col": label_col,
+                "num_labels": num_labels
+            }
+            
+            # Create empty DataFrames if missing
+            if val_df is None:
+                val_df = pd.DataFrame(columns=train_df.columns)
+            if test_df is None:
+                test_df = pd.DataFrame(columns=train_df.columns)
+            
+            return train_df, val_df, test_df, metadata
+            
+        except Exception as e:
+            raise ValueError(f"Failed to load dataset '{dataset_name}' from HuggingFace: {str(e)}")
+            
+    except Exception as e:
+        raise ValueError(f"Error loading from HuggingFace: {str(e)}")
+
+
+def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """
+    Load dataset by name. Falls back to HuggingFace Hub if not found in predefined list.
+    
+    Args:
+        dataset_name: One of "ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed", "Minhbao5xx2/VOZ-HSD_2M",
+                      or any HuggingFace dataset identifier (e.g., "username/dataset_name")
+        split_name: For VOZ-HSD_2M: "balanced" or "hate_only" (default: "balanced")
+        dev_ratio: Validation split ratio for datasets that need splitting (default: 0.1)
+    
+    Returns:
+        Tuple of (train_df, val_df, test_df, metadata)
+    
+    Raises:
+        ValueError: If dataset_name cannot be loaded from any source
     """
     loaders = {
         "ViHSD": load_vihsd,
@@ -276,13 +428,21 @@ def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: f
         split_to_use = split_name if split_name else "balanced"
         return load_voz_hsd_2m(split_to_use, dev_ratio)
     
-    if dataset_name not in loaders:
-        raise ValueError(
-            f"Unknown dataset: {dataset_name}. "
-            f"Available datasets: {list(loaders.keys()) + ['Minhbao5xx2/VOZ-HSD_2M']}"
-        )
+    # Try predefined loaders first
+    if dataset_name in loaders:
+        return loaders[dataset_name]()
     
-    return loaders[dataset_name]()
+    # Fallback: Try loading from HuggingFace Hub
+    if "/" in dataset_name or dataset_name.count("/") == 1:
+        print(f"  Dataset '{dataset_name}' not found in predefined list, trying HuggingFace Hub...")
+        return load_from_huggingface(dataset_name, dev_ratio)
+    
+    # If all else fails, raise error
+    raise ValueError(
+        f"Unknown dataset: {dataset_name}. "
+        f"Available predefined datasets: {list(loaders.keys()) + ['Minhbao5xx2/VOZ-HSD_2M']}. "
+        f"Or use HuggingFace dataset identifier (e.g., 'username/dataset_name')"
+    )
 
 
 def build_torch_dataset(df: pd.DataFrame, text_col: str, label_col: str, 
