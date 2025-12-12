@@ -341,7 +341,19 @@ def main():
     # Compute metrics function (matching original paper implementation)
     def compute_metrics(eval_pred):
         predictions, labels = eval_pred
+        
+        # Clean predictions: replace invalid token IDs with pad_token_id
+        # Predictions might contain -100 or values outside valid token range
+        predictions = np.array(predictions)
+        valid_token_range = (0, len(tokenizer) - 1)
+        
+        # Clip predictions to valid range and replace invalid values
+        predictions = np.clip(predictions, valid_token_range[0], valid_token_range[1])
+        predictions = np.where(predictions == -100, tokenizer.pad_token_id, predictions)
+        
+        # Decode predictions safely
         decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        
         # Replace -100 in labels as we can't decode them
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
