@@ -310,6 +310,7 @@ def main():
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
+        report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
     # Disable cache for training
