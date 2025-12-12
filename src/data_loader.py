@@ -65,23 +65,44 @@ def load_vihsd() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, An
     """
     vihsd = load_dataset("sonlam1102/vihsd")
     
-    train_set = vihsd.filter(lambda ex: ex["type"] == "train")
-    val_set = vihsd.filter(lambda ex: ex["type"] == "validation")
-    test_set = vihsd.filter(lambda ex: ex["type"] == "test")
+    # Check available splits
+    available_splits = list(vihsd.keys())
+    print(f"  Available splits: {available_splits}")
     
-    train_df = train_set["train"].to_pandas()
-    val_df = val_set["train"].to_pandas()
-    test_df = test_set["train"].to_pandas()
+    # Try to get train/val/test splits directly
+    if "train" in available_splits:
+        train_df = vihsd["train"].to_pandas()
+    else:
+        raise ValueError(f"ViHSD dataset does not have 'train' split. Available: {available_splits}")
+    
+    if "validation" in available_splits:
+        val_df = vihsd["validation"].to_pandas()
+    elif "val" in available_splits:
+        val_df = vihsd["val"].to_pandas()
+    else:
+        # No validation split, create empty DataFrame
+        val_df = pd.DataFrame(columns=train_df.columns)
+        print("  ⚠️  No validation split found, using empty validation set")
+    
+    if "test" in available_splits:
+        test_df = vihsd["test"].to_pandas()
+    else:
+        # No test split, create empty DataFrame
+        test_df = pd.DataFrame(columns=train_df.columns)
+        print("  ⚠️  No test split found, using empty test set")
+    
+    # Calculate num_labels from all available data
+    all_labels = train_df["label_id"]
+    if len(val_df) > 0:
+        all_labels = pd.concat([all_labels, val_df["label_id"]])
+    if len(test_df) > 0:
+        all_labels = pd.concat([all_labels, test_df["label_id"]])
     
     metadata = {
         "name": "ViHSD",
         "text_col": "free_text",
         "label_col": "label_id",
-        "num_labels": int(pd.concat([
-            train_df["label_id"],
-            val_df["label_id"],
-            test_df["label_id"]
-        ]).nunique())
+        "num_labels": int(all_labels.nunique())
     }
     
     return train_df, val_df, test_df, metadata
