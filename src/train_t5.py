@@ -333,8 +333,6 @@ def main():
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
-        generation_max_length=8,  # Limit generation length to avoid "phun văn"
-        generation_num_beams=1,  # Use greedy decoding for faster evaluation
         report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
