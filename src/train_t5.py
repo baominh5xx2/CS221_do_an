@@ -12,7 +12,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 from datasets import Dataset
 import nltk
 
@@ -69,7 +69,8 @@ def map_data_vihsd(df):
     }
     df = df.copy()
     df["source"] = df["free_text"].apply(lambda x: "hate-speech-detection: " + str(x))
-    df["target"] = df["label_id"].apply(lambda x: map_labels[x])
+    # Convert label to int (handle float labels like 0.0, 1.0, 2.0)
+    df["target"] = df["label_id"].apply(lambda x: map_labels[int(x)])
     return df[["source", "target"]]
 
 
@@ -81,7 +82,8 @@ def map_data_victsd(df):
     }
     df = df.copy()
     df["source"] = df["Comment"].apply(lambda x: "toxic-speech-detection: " + str(x))
-    df["target"] = df["Toxicity"].apply(lambda x: map_labels[x])
+    # Convert label to int (handle float labels like 0.0, 1.0)
+    df["target"] = df["Toxicity"].apply(lambda x: map_labels[int(x)])
     return df[["source", "target"]]
 
 
@@ -132,7 +134,8 @@ def map_data_vozhsd(df):
     }
     df = df.copy()
     df["source"] = df["texts"].apply(lambda x: "hate-speech-detection: " + str(x))
-    df["target"] = df["labels"].apply(lambda x: map_labels[x])
+    # Convert label to int (handle float labels like 0.0, 1.0)
+    df["target"] = df["labels"].apply(lambda x: map_labels[int(x)])
     return df[["source", "target"]]
 
 
@@ -160,7 +163,8 @@ def map_data_generic(df, text_col, label_col, num_labels=None):
     
     # Map labels
     df["source"] = df[text_col].apply(lambda x: "hate-speech-detection: " + str(x))
-    df["target"] = df[label_col].apply(lambda x: map_labels.get(x, f"CLASS_{x}"))
+    # Convert label to int (handle float labels) before mapping
+    df["target"] = df[label_col].apply(lambda x: map_labels.get(int(x), f"CLASS_{int(x)}"))
     
     return df[["source", "target"]]
 
@@ -338,7 +342,37 @@ def main():
     # Data collator
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
     
-    # Compute metrics function (matching original paper implementation exactly)
+    # Determine valid labels based on dataset
+    # Collect all possible labels from mapping functions
+    valid_labels = set()
+    if args.dataset == "ViHSD":
+        valid_labels = {"CLEAN", "OFFENSIVE", "HATE"}
+    elif args.dataset == "ViCTSD":
+        valid_labels = {"NONE", "TOXIC"}
+    elif "VOZ-HSD" in args.dataset or "VOZ_HSD" in args.dataset:
+        valid_labels = {"NONE", "HATE"}
+    elif args.dataset == "ViHOS":
+        # ViHOS uses tagged text, so we'll use a different approach
+        valid_labels = None  # Will handle differently
+    else:
+        # Generic: try to detect from metadata or use common labels
+        if metadata and metadata.get("num_labels") == 2:
+            valid_labels = {"NONE", "HATE"}
+        elif metadata and metadata.get("num_labels") == 3:
+            valid_labels = {"CLEAN", "OFFENSIVE", "HATE"}
+        else:
+            valid_labels = {"CLEAN", "OFFENSIVE", "HATE", "NONE", "TOXIC"}  # All possible
+    
+    def norm_label(s: str, valid_set=None) -> str:
+        """Normalize label: strip, uppercase, take first word, validate."""
+        if valid_set is None:
+            valid_set = valid_labels
+        s = (s or "").strip().upper()
+        # Take first word (in case model generates "CLEAN text" or "HATE speech")
+        s = s.split()[0] if s else ""
+        return s if s in valid_set else "OTHER"
+    
+    # Compute metrics function (with label normalization for robustness)
     def compute_metrics(eval_pred):
         predictions, labels = eval_pred
         
@@ -353,19 +387,33 @@ def main():
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
         
-        # Rouge expects a newline after each sentence
-        decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
-        decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
-        
-        # Calculate F1 macro (exactly as in original paper)
-        # Add zero_division=0 to prevent division by zero errors
-        f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
+        # For ViHOS (span detection), don't normalize - use original text
+        if args.dataset == "ViHOS":
+            # Rouge expects a newline after each sentence (as in original paper)
+            decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
+            decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
+            f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
+        else:
+            # For classification tasks: normalize labels to handle model output variations
+            y_pred = [norm_label(x, valid_labels) for x in decoded_preds]
+            y_true = [norm_label(x, valid_labels) for x in decoded_labels]
+            
+            # Calculate metrics
+            accuracy = accuracy_score(y_true, y_pred)
+            f1_macro = f1_score(y_true, y_pred, average='macro', zero_division=0)
         
         # Add mean generated length
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
         gen_len_mean = np.mean(prediction_lens)
         
-        return {'f1_macro': round(f1_macro * 100, 4), 'gen_len': round(gen_len_mean, 4)}
+        if args.dataset == "ViHOS":
+            return {'f1_macro': round(f1_macro * 100, 4), 'gen_len': round(gen_len_mean, 4)}
+        else:
+            return {
+                'accuracy': round(accuracy * 100, 4),
+                'f1_macro': round(f1_macro * 100, 4), 
+                'gen_len': round(gen_len_mean, 4)
+            }
     
     # Create trainer
     trainer = Seq2SeqTrainer(
