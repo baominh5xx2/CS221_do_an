@@ -338,48 +338,34 @@ def main():
     # Data collator
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
     
-    # Compute metrics function (matching original paper implementation)
+    # Compute metrics function (matching original paper implementation exactly)
     def compute_metrics(eval_pred):
         predictions, labels = eval_pred
         
-        # Clean predictions: replace invalid token IDs with pad_token_id
-        # Predictions might contain -100 or values outside valid token range
+        # Handle potential overflow: clip predictions to valid token range
+        # This prevents OverflowError when decoding
         predictions = np.array(predictions)
-        valid_token_range = (0, len(tokenizer) - 1)
+        if predictions.max() >= len(tokenizer) or predictions.min() < 0:
+            predictions = np.clip(predictions, 0, len(tokenizer) - 1)
         
-        # Clip predictions to valid range and replace invalid values
-        predictions = np.clip(predictions, valid_token_range[0], valid_token_range[1])
-        predictions = np.where(predictions == -100, tokenizer.pad_token_id, predictions)
-        
-        # Decode predictions safely
         decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
-        
-        # Replace -100 in labels as we can't decode them
+        # Replace -100 in the labels as we can't decode them
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
         
-        # Apply NLTK sentence tokenization (as in original paper)
         # Rouge expects a newline after each sentence
         decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
         decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
         
-        # Calculate F1 macro directly on strings (as in original paper)
-        try:
-            f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
-        except Exception as e:
-            # Fallback: calculate accuracy if F1 fails
-            exact_matches = sum([1 for p, l in zip(decoded_preds, decoded_labels) if p.strip() == l.strip()])
-            accuracy = exact_matches / len(decoded_preds) if len(decoded_preds) > 0 else 0.0
-            f1_macro = accuracy
+        # Calculate F1 macro (exactly as in original paper)
+        # Add zero_division=0 to prevent division by zero errors
+        f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
         
         # Add mean generated length
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
-        gen_len_mean = np.mean(prediction_lens) if len(prediction_lens) > 0 else 0.0
+        gen_len_mean = np.mean(prediction_lens)
         
-        return {
-            'f1_macro': round(f1_macro * 100, 4), 
-            'gen_len': round(gen_len_mean, 4)
-        }
+        return {'f1_macro': round(f1_macro * 100, 4), 'gen_len': round(gen_len_mean, 4)}
     
     # Create trainer
     trainer = Seq2SeqTrainer(
