@@ -324,7 +324,6 @@ def main():
         logging_strategy="epoch",
         save_strategy="epoch",
         eval_strategy="epoch",
-        eval_strategy="epoch",  # Also set for compatibility
         load_best_model_at_end=True,
         save_total_limit=1,
         do_train=True,
