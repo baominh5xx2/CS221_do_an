@@ -291,6 +291,40 @@ def main():
     trainer.save_model(out)
     tokenizer.save_pretrained(out)
 
+    # --- Save Training Config & History ---
+    print("  Saving training configuration...")
+    config_dict = {
+        "model_name": args.model_name,
+        "max_length": args.max_length,
+        "batch_size": args.batch_size,
+        "epochs": args.epochs,
+        "learning_rate": args.lr,
+        "lr_scheduler_type": args.lr_scheduler_type,
+        "warmup_ratio": args.warmup_ratio,
+        "optim": args.optim,
+        "weight_decay": args.weight_decay,
+        "label_smoothing_factor": args.label_smoothing_factor,
+        "dev_ratio": args.dev_ratio,
+        "train_samples": len(train_df),
+        "val_samples": len(val_df),
+        "test_samples": len(test_df),
+    }
+    pd.DataFrame([config_dict]).to_csv(f"{out}/training_config.csv", index=False)
+    print(f"    Saved to {out}/training_config.csv")
+
+    print("  Saving training history...")
+    if hasattr(trainer.state, 'log_history') and trainer.state.log_history:
+        history_rows = []
+        for log_entry in trainer.state.log_history:
+            if 'epoch' in log_entry:
+                # Filter out some keys to keep it clean, but keep metrics
+                row = {k: v for k, v in log_entry.items() if k not in ['total_flos', 'train_steps_per_second']}
+                history_rows.append(row)
+        
+        if history_rows:
+            pd.DataFrame(history_rows).to_csv(f"{out}/training_history.csv", index=False)
+            print(f"    Saved to {out}/training_history.csv ({len(history_rows)} entries)")
+
     # ---- Auto evaluation on DEV & TEST (REAL metrics) ----
     print("\n" + "=" * 80)
     print("📊 Final Evaluation (REAL Process 1 & 2 metrics)")
@@ -331,6 +365,30 @@ def main():
         ]
     )
     results.to_csv(f"{out}/evaluation_results.csv", index=False)
+
+    # Save run summary
+    print("  Saving run summary...")
+    training_time = 0
+    if hasattr(trainer.state, 'log_history'):
+        training_time = sum([log.get("train_runtime", 0) for log in trainer.state.log_history if "train_runtime" in log]) / 60
+
+    summary = {
+        "model_name": args.model_name,
+        "timestamp": datetime.now().isoformat(),
+        "train_samples": len(train_df),
+        "val_samples": len(val_df),
+        "test_samples": len(test_df),
+        "dev_accuracy": dev_acc,
+        "dev_f1_macro": dev_f1m,
+        "test_accuracy": test_acc,
+        "test_f1_macro": test_f1m,
+        "training_minutes": training_time,
+        "epochs_trained": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.lr,
+    }
+    pd.DataFrame([summary]).to_csv(f"{out}/run_summary.csv", index=False)
+    print(f"    Saved to {out}/run_summary.csv")
 
     print(f"\n✅ Done! Model & results saved to: {out}")
     print(f"⚠️  Note: 'exact_match' & 'token_f1' during training are PROXY metrics.")
