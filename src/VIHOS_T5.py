@@ -44,8 +44,6 @@ def parse_args():
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--label_smoothing_factor", type=float, default=0.0)
     p.add_argument("--num_beams", type=int, default=1)
-    p.add_argument("--fp16", action="store_true")
-    p.add_argument("--bf16", action="store_true")
     
     return p.parse_args()
 
@@ -165,7 +163,6 @@ def main():
     print(f"   LR: {args.lr}")
     print(f"   Optim: {args.optim}")
     print(f"   Sched: {args.lr_scheduler_type}")
-    print(f"   FP16: {args.fp16}, BF16: {args.bf16}")
 
     # Keep original copies for evaluation
     val_df_orig = val_df.copy()
@@ -224,8 +221,6 @@ def main():
         predict_with_generate=True,  # Enable generation trong eval
         generation_max_length=args.max_length,
         generation_num_beams=args.num_beams,
-        fp16=args.fp16,
-        bf16=args.bf16,
         report_to="none",
     )
 
