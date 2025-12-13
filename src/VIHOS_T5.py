@@ -458,7 +458,7 @@ def main():
     print("📊 CLASSIFICATION REPORT (Binary: Has Hate Spans)")
     print("=" * 80)
     report = classification_report(test_has_hate_true, test_has_hate_pred, 
-                                   target_names=['No Hate', 'Has Hate'], zero_division=0)
+                                   target_names=['No Hate', 'Has Hate'], zero_division=0, digits=4)
     print(report)
     
     # Confusion matrix
@@ -473,9 +473,14 @@ def main():
     # Save classification report and confusion matrix
     report_dict = classification_report(test_has_hate_true, test_has_hate_pred, 
                                        target_names=['No Hate', 'Has Hate'], 
-                                       zero_division=0, output_dict=True)
+                                       zero_division=0, output_dict=True, digits=4)
     report_df = pd.DataFrame(report_dict).transpose()
-    report_df.to_csv(f"{out}/classification_report.csv")
+    # Round numeric columns to 4 decimal places
+    numeric_cols = ['precision', 'recall', 'f1-score']
+    for col in numeric_cols:
+        if col in report_df.columns:
+            report_df[col] = report_df[col].apply(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    report_df.to_csv(f"{out}/classification_report.csv", float_format='%.4f')
     print(f"\n💾 Saved classification report to {out}/classification_report.csv")
     
     cm_df.to_csv(f"{out}/confusion_matrix.csv")

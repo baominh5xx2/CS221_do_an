@@ -380,7 +380,7 @@ def main():
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
-        generation_max_length=args.max_length,
+        #generation_max_length=args.max_length,
         report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
@@ -482,7 +482,7 @@ def main():
     print("\n" + "=" * 80)
     print("📊 CLASSIFICATION REPORT (Test Set)")
     print("=" * 80)
-    report = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0)
+    report = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0, digits=4)
     print(report)
     
     # Print confusion matrix
@@ -495,9 +495,14 @@ def main():
     print("=" * 80)
     
     # Save classification report and confusion matrix
-    report_dict = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0, output_dict=True)
+    report_dict = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0, output_dict=True, digits=4)
     report_df = pd.DataFrame(report_dict).transpose()
-    report_df.to_csv(f"{output_dir}/classification_report.csv")
+    # Round numeric columns to 4 decimal places
+    numeric_cols = ['precision', 'recall', 'f1-score']
+    for col in numeric_cols:
+        if col in report_df.columns:
+            report_df[col] = report_df[col].apply(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    report_df.to_csv(f"{output_dir}/classification_report.csv", float_format='%.4f')
     print(f"\n💾 Saved classification report to {output_dir}/classification_report.csv")
     
     cm_df.to_csv(f"{output_dir}/confusion_matrix.csv")
