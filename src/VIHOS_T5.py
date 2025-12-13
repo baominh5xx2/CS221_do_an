@@ -9,10 +9,11 @@ import unicodedata
 import pandas as pd
 import numpy as np
 import torch
+import psutil
 from datetime import datetime
 from datasets import Dataset
 from tqdm import tqdm
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score, accuracy_score, classification_report, confusion_matrix
 from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
@@ -24,6 +25,22 @@ from transformers import (
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 from data_loader import load_dataset_by_name  # noqa: E402
 
+
+def get_gpu_memory():
+    """Get current GPU memory usage in GB."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1e9
+    return 0.0
+
+def get_gpu_memory_reserved():
+    """Get reserved GPU memory in GB."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_reserved() / 1e9
+    return 0.0
+
+def get_ram_usage():
+    """Get current RAM usage in GB."""
+    return psutil.Process().memory_info().rss / 1e9
 
 def parse_args():
     p = argparse.ArgumentParser(description="Train T5 for ViHOS span detection")
@@ -152,6 +169,16 @@ def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n🖥️ Device: {device}, GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}")
+    
+    if torch.cuda.is_available():
+        total_vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"   Total VRAM: {total_vram:.1f} GB")
+    
+    # Track initial memory
+    initial_vram = get_gpu_memory()
+    initial_ram = get_ram_usage()
+    print(f"   Initial VRAM: {initial_vram:.2f} GB")
+    print(f"   Initial RAM: {initial_ram:.2f} GB")
 
     # Load ViHOS
     train_df, val_df, test_df, _ = load_dataset_by_name("ViHOS", dev_ratio=args.dev_ratio)
@@ -287,7 +314,29 @@ def main():
     )
 
     print("\n🚀 Training (with proxy metrics)...")
+    import time
+    train_start_time = time.time()
+    
+    # Reset peak memory stats
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    
     trainer.train()
+    
+    train_end_time = time.time()
+    total_train_time = (train_end_time - train_start_time) / 60  # minutes
+    
+    # Get peak memory
+    peak_vram = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0.0
+    final_vram = get_gpu_memory()
+    final_ram = get_ram_usage()
+    
+    print(f"\n💾 Memory Usage:")
+    print(f"   Peak VRAM: {peak_vram:.2f} GB")
+    print(f"   Final VRAM: {final_vram:.2f} GB")
+    print(f"   Final RAM: {final_ram:.2f} GB")
+    print(f"   Training Time: {total_train_time:.2f} minutes")
+    
     trainer.save_model(out)
     tokenizer.save_pretrained(out)
 
@@ -365,13 +414,84 @@ def main():
         ]
     )
     results.to_csv(f"{out}/evaluation_results.csv", index=False)
+    print(f"\n💾 Saved evaluation results to {out}/evaluation_results.csv")
+    
+    # Generate detailed predictions for error analysis (on test set)
+    print("\n📋 Generating detailed predictions for error analysis...")
+    test_df_full = test_df_orig.copy()
+    test_df_full["source"] = test_df_full["content"].apply(lambda x: "hate-spans-detection: " + str(x))
+    
+    test_outputs = []
+    for i in tqdm(range(0, len(test_df_full), args.eval_batch_size), desc="Generating test predictions"):
+        batch = test_df_full["source"].iloc[i : i + args.eval_batch_size].tolist()
+        inp = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=args.max_length)
+        inp = {k: v.to(device) for k, v in inp.items()}
+        with torch.no_grad():
+            out_ids = model.generate(**inp, max_length=args.max_length)
+        test_outputs.extend(tokenizer.batch_decode(out_ids, skip_special_tokens=True))
+    
+    # Extract predicted spans
+    pred_spans_test = [extract_spans(test_df_full["content"].iloc[i], test_outputs[i]) for i in range(len(test_df_full))]
+    
+    # Create binary labels for classification
+    test_has_hate_true = [1 if (test_df_full["index_spans"].iloc[i] != '[]' and 
+                                  test_df_full["index_spans"].iloc[i] != '' and 
+                                  not pd.isna(test_df_full["index_spans"].iloc[i])) else 0 
+                          for i in range(len(test_df_full))]
+    test_has_hate_pred = [1 if (pred != '[]' and pred != '') else 0 for pred in pred_spans_test]
+    
+    # Save detailed predictions
+    predictions_df = pd.DataFrame({
+        'content': test_df_full['content'].values,
+        'true_spans': test_df_full['index_spans'].values,
+        'pred_spans': pred_spans_test,
+        'generated_text': test_outputs,
+        'has_hate_true': test_has_hate_true,
+        'has_hate_pred': test_has_hate_pred,
+        'correct': [1 if p == t else 0 for p, t in zip(test_has_hate_pred, test_has_hate_true)]
+    })
+    predictions_df.to_csv(f"{out}/predictions_detailed.csv", index=False)
+    print(f"💾 Saved detailed predictions to {out}/predictions_detailed.csv")
+    
+    # Classification report for binary hate/no-hate
+    print("\n" + "=" * 80)
+    print("📊 CLASSIFICATION REPORT (Binary: Has Hate Spans)")
+    print("=" * 80)
+    report = classification_report(test_has_hate_true, test_has_hate_pred, 
+                                   target_names=['No Hate', 'Has Hate'], zero_division=0)
+    print(report)
+    
+    # Confusion matrix
+    print("\n" + "=" * 80)
+    print("📊 CONFUSION MATRIX (Binary: Has Hate Spans)")
+    print("=" * 80)
+    cm = confusion_matrix(test_has_hate_true, test_has_hate_pred)
+    cm_df = pd.DataFrame(cm, index=['No Hate', 'Has Hate'], columns=['No Hate', 'Has Hate'])
+    print(cm_df)
+    print("=" * 80)
+    
+    # Save classification report and confusion matrix
+    report_dict = classification_report(test_has_hate_true, test_has_hate_pred, 
+                                       target_names=['No Hate', 'Has Hate'], 
+                                       zero_division=0, output_dict=True)
+    report_df = pd.DataFrame(report_dict).transpose()
+    report_df.to_csv(f"{out}/classification_report.csv")
+    print(f"\n💾 Saved classification report to {out}/classification_report.csv")
+    
+    cm_df.to_csv(f"{out}/confusion_matrix.csv")
+    print(f"💾 Saved confusion matrix to {out}/confusion_matrix.csv")
 
     # Save run summary
     print("  Saving run summary...")
-    training_time = 0
-    if hasattr(trainer.state, 'log_history'):
-        training_time = sum([log.get("train_runtime", 0) for log in trainer.state.log_history if "train_runtime" in log]) / 60
-
+    
+    # Get per-class metrics
+    no_hate_f1 = report_dict['No Hate']['f1-score'] * 100 if 'No Hate' in report_dict else 0.0
+    has_hate_f1 = report_dict['Has Hate']['f1-score'] * 100 if 'Has Hate' in report_dict else 0.0
+    no_hate_precision = report_dict['No Hate']['precision'] * 100 if 'No Hate' in report_dict else 0.0
+    has_hate_precision = report_dict['Has Hate']['precision'] * 100 if 'Has Hate' in report_dict else 0.0
+    no_hate_recall = report_dict['No Hate']['recall'] * 100 if 'No Hate' in report_dict else 0.0
+    has_hate_recall = report_dict['Has Hate']['recall'] * 100 if 'Has Hate' in report_dict else 0.0
+    
     summary = {
         "model_name": args.model_name,
         "timestamp": datetime.now().isoformat(),
@@ -379,13 +499,26 @@ def main():
         "val_samples": len(val_df),
         "test_samples": len(test_df),
         "dev_accuracy": dev_acc,
+        "dev_f1_weighted": dev_f1w,
         "dev_f1_macro": dev_f1m,
         "test_accuracy": test_acc,
+        "test_f1_weighted": test_f1w,
         "test_f1_macro": test_f1m,
-        "training_minutes": training_time,
+        "training_minutes": total_train_time,
         "epochs_trained": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.lr,
+        "peak_vram_gb": peak_vram,
+        "final_vram_gb": final_vram,
+        "final_ram_gb": final_ram,
+        "total_vram_gb": total_vram if torch.cuda.is_available() else 0.0,
+        "binary_accuracy": accuracy_score(test_has_hate_true, test_has_hate_pred) * 100,
+        "no_hate_f1": no_hate_f1,
+        "has_hate_f1": has_hate_f1,
+        "no_hate_precision": no_hate_precision,
+        "has_hate_precision": has_hate_precision,
+        "no_hate_recall": no_hate_recall,
+        "has_hate_recall": has_hate_recall,
     }
     pd.DataFrame([summary]).to_csv(f"{out}/run_summary.csv", index=False)
     print(f"    Saved to {out}/run_summary.csv")
@@ -393,6 +526,13 @@ def main():
     print(f"\n✅ Done! Model & results saved to: {out}")
     print(f"⚠️  Note: 'exact_match' & 'token_f1' during training are PROXY metrics.")
     print(f"   REAL metrics are shown above (Process 1 & 2 from paper).")
+    print(f"\n📊 Summary:")
+    print(f"   Training Time: {total_train_time:.2f} minutes")
+    print(f"   Peak VRAM: {peak_vram:.2f} GB / {total_vram if torch.cuda.is_available() else 0.0:.1f} GB")
+    print(f"   Test Accuracy (Span): {test_acc:.2f}%")
+    print(f"   Test F1 Macro (Span): {test_f1m:.2f}%")
+    print(f"   Binary Accuracy (Has Hate): {summary['binary_accuracy']:.2f}%")
+    print("=" * 80)
 
 
 if __name__ == "__main__":

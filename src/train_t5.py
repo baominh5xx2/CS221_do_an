@@ -12,9 +12,11 @@ import argparse
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score, accuracy_score, classification_report, confusion_matrix
 from datasets import Dataset
 import nltk
+import torch
+import psutil
 
 # Download punkt tokenizer for sentence tokenization
 try:
@@ -202,17 +204,39 @@ def map_dataset(df, dataset_name, metadata=None):
         return map_data_vozhsd(df)
 
 
+def get_gpu_memory():
+    """Get current GPU memory usage in GB."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1e9
+    return 0.0
+
+def get_gpu_memory_reserved():
+    """Get reserved GPU memory in GB."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_reserved() / 1e9
+    return 0.0
+
+def get_ram_usage():
+    """Get current RAM usage in GB."""
+    return psutil.Process().memory_info().rss / 1e9
+
 def main():
     """Main training function for T5 using Seq2SeqTrainer."""
     args = parse_args()
     
     # Device info
-    import torch
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n🖥️  Device: {device}")
     if torch.cuda.is_available():
         print(f"   GPU: {torch.cuda.get_device_name(0)}")
-        print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        total_vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"   Total VRAM: {total_vram:.1f} GB")
+    
+    # Track memory
+    initial_vram = get_gpu_memory()
+    initial_ram = get_ram_usage()
+    print(f"   Initial VRAM used: {initial_vram:.2f} GB")
+    print(f"   Initial RAM used: {initial_ram:.2f} GB")
     
     # Print config
     print("\n" + "=" * 80)
@@ -406,14 +430,88 @@ def main():
     
     # Train
     print("\n🚀 Starting training...")
+    import time
+    train_start_time = time.time()
+    
+    # Track peak memory during training
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    
     trainer.train()
     
-    # Evaluate on test set
+    train_end_time = time.time()
+    total_train_time = (train_end_time - train_start_time) / 60  # minutes
+    
+    # Get peak memory
+    peak_vram = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0.0
+    final_vram = get_gpu_memory()
+    final_ram = get_ram_usage()
+    
+    print(f"\n💾 Memory Usage:")
+    print(f"   Peak VRAM: {peak_vram:.2f} GB")
+    print(f"   Final VRAM: {final_vram:.2f} GB")
+    print(f"   Final RAM: {final_ram:.2f} GB")
+    print(f"   Training Time: {total_train_time:.2f} minutes")
+    
+    # Evaluate on test set with detailed metrics
     print("\n📊 Evaluating on test set...")
     test_results = trainer.evaluate(test_tokenized)
-    print(f"  Test Accuracy: {test_results.get('eval_accuracy', 'N/A')}")
-    print(f"  Test F1 Macro: {test_results.get('eval_f1_macro', 'N/A')}")
-    print(f"  Test Loss    : {test_results.get('eval_loss', 'N/A')}")
+    print(f"  Test Accuracy: {test_results.get('eval_accuracy', 'N/A'):.2f}")
+    print(f"  Test F1 Macro: {test_results.get('eval_f1_macro', 'N/A'):.2f}")
+    print(f"  Test Loss    : {test_results.get('eval_loss', 'N/A'):.4f}")
+    
+    # Generate predictions for classification report
+    print("\n📋 Generating detailed predictions for classification report...")
+    predictions = trainer.predict(test_tokenized)
+    preds = predictions.predictions
+    labels = predictions.label_ids
+    
+    # Decode predictions and labels
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    
+    # Normalize labels
+    y_pred = [norm(x) for x in decoded_preds]
+    y_true = [norm(x) for x in decoded_labels]
+    
+    # Get unique labels
+    unique_labels = sorted(set(y_true + y_pred))
+    
+    # Print classification report
+    print("\n" + "=" * 80)
+    print("📊 CLASSIFICATION REPORT (Test Set)")
+    print("=" * 80)
+    report = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0)
+    print(report)
+    
+    # Print confusion matrix
+    print("\n" + "=" * 80)
+    print("📊 CONFUSION MATRIX (Test Set)")
+    print("=" * 80)
+    cm = confusion_matrix(y_true, y_pred, labels=unique_labels)
+    cm_df = pd.DataFrame(cm, index=unique_labels, columns=unique_labels)
+    print(cm_df)
+    print("=" * 80)
+    
+    # Save classification report and confusion matrix
+    report_dict = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0, output_dict=True)
+    report_df = pd.DataFrame(report_dict).transpose()
+    report_df.to_csv(f"{output_dir}/classification_report.csv")
+    print(f"\n💾 Saved classification report to {output_dir}/classification_report.csv")
+    
+    cm_df.to_csv(f"{output_dir}/confusion_matrix.csv")
+    print(f"💾 Saved confusion matrix to {output_dir}/confusion_matrix.csv")
+    
+    # Save detailed predictions for error analysis
+    predictions_df = pd.DataFrame({
+        'text': test_df['source'].values[:len(y_pred)],
+        'true_label': y_true,
+        'pred_label': y_pred,
+        'correct': [1 if p == t else 0 for p, t in zip(y_pred, y_true)]
+    })
+    predictions_df.to_csv(f"{output_dir}/predictions_detailed.csv", index=False)
+    print(f"💾 Saved detailed predictions to {output_dir}/predictions_detailed.csv")
     
     # Save final model
     print(f"\n💾 Saving model to {output_dir}...")
@@ -499,12 +597,7 @@ def main():
     print("  Saving run summary...")
     
     # Calculate training time if available
-    training_time = None
-    if hasattr(trainer.state, 'log_history') and trainer.state.log_history:
-        # Sum up train_runtime from all epochs
-        total_runtime = sum([log.get("train_runtime", 0) for log in trainer.state.log_history if "train_runtime" in log])
-        if total_runtime > 0:
-            training_time = total_runtime / 60  # Convert to minutes
+    training_time = total_train_time  # Use the measured time
     
     # Get best eval metrics
     best_eval_f1 = None
@@ -516,6 +609,16 @@ def main():
         eval_acc_entries = [log for log in trainer.state.log_history if "eval_accuracy" in log]
         if eval_acc_entries:
             best_eval_acc = max([log["eval_accuracy"] for log in eval_acc_entries])
+    
+    # Get per-class metrics from classification report
+    per_class_f1 = {}
+    per_class_precision = {}
+    per_class_recall = {}
+    for label in unique_labels:
+        if label in report_dict and label not in ['accuracy', 'macro avg', 'weighted avg']:
+            per_class_f1[f"f1_{label}"] = report_dict[label].get('f1-score', 0.0) * 100
+            per_class_precision[f"precision_{label}"] = report_dict[label].get('precision', 0.0) * 100
+            per_class_recall[f"recall_{label}"] = report_dict[label].get('recall', 0.0) * 100
     
     summary = {
         "dataset": args.dataset,
@@ -537,7 +640,16 @@ def main():
         "warmup_ratio": args.warmup_ratio,
         "optim": args.optim,
         "max_length": args.max_length,
+        "peak_vram_gb": peak_vram,
+        "final_vram_gb": final_vram,
+        "final_ram_gb": final_ram,
+        "total_vram_gb": total_vram if torch.cuda.is_available() else 0.0,
     }
+    
+    # Add per-class metrics
+    summary.update(per_class_f1)
+    summary.update(per_class_precision)
+    summary.update(per_class_recall)
     
     summary_df = pd.DataFrame([summary])
     summary_df.to_csv(f"{output_dir}/run_summary.csv", index=False)
@@ -550,7 +662,16 @@ def main():
     print(f"     - training_config.csv (hyperparameters & dataset info)")
     print(f"     - training_history.csv (metrics per epoch)")
     print(f"     - test_results.csv (final test metrics)")
-    print(f"     - run_summary.csv (overall summary)")
+    print(f"     - run_summary.csv (overall summary + memory usage)")
+    print(f"     - classification_report.csv (per-class precision/recall/f1)")
+    print(f"     - confusion_matrix.csv (confusion matrix)")
+    print(f"     - predictions_detailed.csv (all predictions for error analysis)")
+    print("=" * 80)
+    print(f"\n📊 Summary:")
+    print(f"   Training Time: {training_time:.2f} minutes")
+    print(f"   Peak VRAM: {peak_vram:.2f} GB / {total_vram if torch.cuda.is_available() else 0.0:.1f} GB")
+    print(f"   Test Accuracy: {test_results.get('eval_accuracy', 0):.2f}%")
+    print(f"   Test F1 Macro: {test_results.get('eval_f1_macro', 0):.2f}%")
     print("=" * 80)
 
 
