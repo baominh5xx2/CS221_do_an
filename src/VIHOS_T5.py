@@ -35,6 +35,18 @@ def parse_args():
     p.add_argument("--output_dir", default=None)
     p.add_argument("--dev_ratio", type=float, default=0.1)
     p.add_argument("--eval_batch_size", type=int, default=128)
+    
+    # New args
+    p.add_argument("--optim", type=str, default="adafactor")
+    p.add_argument("--lr_scheduler_type", type=str, default="linear")
+    p.add_argument("--warmup_ratio", type=float, default=0.1)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--weight_decay", type=float, default=0.01)
+    p.add_argument("--label_smoothing_factor", type=float, default=0.0)
+    p.add_argument("--num_beams", type=int, default=1)
+    p.add_argument("--fp16", action="store_true")
+    p.add_argument("--bf16", action="store_true")
+    
     return p.parse_args()
 
 def process_spans(lst):
@@ -146,6 +158,14 @@ def main():
     # Load ViHOS
     train_df, val_df, test_df, _ = load_dataset_by_name("ViHOS", dev_ratio=args.dev_ratio)
     print(f"📚 Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+    
+    print(f"⚙️  Config:")
+    print(f"   Model: {args.model_name}")
+    print(f"   Batch: {args.batch_size}")
+    print(f"   LR: {args.lr}")
+    print(f"   Optim: {args.optim}")
+    print(f"   Sched: {args.lr_scheduler_type}")
+    print(f"   FP16: {args.fp16}, BF16: {args.bf16}")
 
     # Keep original copies for evaluation
     val_df_orig = val_df.copy()
@@ -187,8 +207,14 @@ def main():
         overwrite_output_dir=True,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.lr,
+        weight_decay=args.weight_decay,
         num_train_epochs=args.epochs,
+        lr_scheduler_type=args.lr_scheduler_type,
+        warmup_ratio=args.warmup_ratio,
+        optim=args.optim,
+        label_smoothing_factor=args.label_smoothing_factor,
         logging_strategy="epoch",
         save_strategy="epoch",
         eval_strategy="epoch",
@@ -197,7 +223,9 @@ def main():
         greater_is_better=False,
         predict_with_generate=True,  # Enable generation trong eval
         generation_max_length=args.max_length,
-        generation_num_beams=1,
+        generation_num_beams=args.num_beams,
+        fp16=args.fp16,
+        bf16=args.bf16,
         report_to="none",
     )
 
