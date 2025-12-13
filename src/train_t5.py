@@ -52,6 +52,18 @@ def parse_args():
                        help="Number of training epochs")
     parser.add_argument("--learning_rate", type=float, default=2e-4,
                        help="Learning rate")
+    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+                       help="Warmup ratio")
+    parser.add_argument("--lr_scheduler_type", type=str, default="linear",
+                       help="Learning rate scheduler type (linear, cosine, constant, etc.)")
+    parser.add_argument("--optim", type=str, default="adafactor",
+                       help="Optimizer (adafactor, adamw_torch, etc.)")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
+                       help="Number of updates steps to accumulate before performing a backward/update pass")
+    parser.add_argument("--weight_decay", type=float, default=0.01,
+                       help="Weight decay if we apply some")
+    parser.add_argument("--label_smoothing_factor", type=float, default=0.0,
+                       help="Label smoothing factor")
     parser.add_argument("--dev_ratio", type=float, default=0.1,
                        help="Validation split ratio (default: 0.1)")
     parser.add_argument("--output_dir", type=str, default=None,
@@ -212,6 +224,9 @@ def main():
     print(f"  Batch Size     : {args.batch_size}")
     print(f"  Epochs         : {args.epochs}")
     print(f"  Learning Rate  : {args.learning_rate}")
+    print(f"  Scheduler      : {args.lr_scheduler_type}")
+    print(f"  Warmup Ratio   : {args.warmup_ratio}")
+    print(f"  Optimizer      : {args.optim}")
     
     # Load dataset first to check if dev_ratio is actually used
     print(f"\n📚 Loading {args.dataset} dataset...")
@@ -322,17 +337,26 @@ def main():
         output_dir=output_dir,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
         num_train_epochs=args.epochs,
+        lr_scheduler_type=args.lr_scheduler_type,
+        warmup_ratio=args.warmup_ratio,
+        optim=args.optim,
+        label_smoothing_factor=args.label_smoothing_factor,
         logging_dir=f"{output_dir}/logs",
         logging_strategy="epoch",
         save_strategy="epoch",
         eval_strategy="epoch",
         load_best_model_at_end=True,
+        metric_for_best_model="f1_macro",
+        greater_is_better=True,
         save_total_limit=1,
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
+        generation_max_length=args.max_length,
         report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
@@ -405,6 +429,11 @@ def main():
         "batch_size": args.batch_size,
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
+        "lr_scheduler_type": args.lr_scheduler_type,
+        "warmup_ratio": args.warmup_ratio,
+        "optim": args.optim,
+        "weight_decay": args.weight_decay,
+        "label_smoothing_factor": args.label_smoothing_factor,
         "dev_ratio": args.dev_ratio,
         "train_samples": len(train_df),
         "val_samples": len(val_df),
@@ -504,6 +533,9 @@ def main():
         "epochs_trained": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
+        "lr_scheduler_type": args.lr_scheduler_type,
+        "warmup_ratio": args.warmup_ratio,
+        "optim": args.optim,
         "max_length": args.max_length,
     }
     
