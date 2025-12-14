@@ -38,6 +38,19 @@ os.environ["TOKENIZERS_PARALLELISM"] = 'False'
 from data_loader import load_dataset_by_name
 
 
+class CustomSeq2SeqTrainer(Seq2SeqTrainer):
+    """Custom trainer that skips saving optimizer state to avoid I/O errors and save disk space."""
+    
+    def _save_optimizer_and_scheduler(self, output_dir):
+        """Override to skip saving optimizer and scheduler state.
+        
+        This prevents RuntimeError when optimizer state file is too large.
+        Model weights are sufficient for inference. If you need to resume training,
+        you'll need to restart from the saved model checkpoint.
+        """
+        pass
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Train T5/ViT5 for hate speech detection")
@@ -417,8 +430,8 @@ def main():
             "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0) * 100,
         }
     
-    # Create trainer
-    trainer = Seq2SeqTrainer(
+    # Create trainer (using custom trainer that skips saving optimizer state)
+    trainer = CustomSeq2SeqTrainer(
         model=model,
         args=training_args,
         data_collator=data_collator,

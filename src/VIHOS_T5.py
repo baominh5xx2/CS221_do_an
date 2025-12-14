@@ -26,6 +26,19 @@ os.environ["TOKENIZERS_PARALLELISM"] = "False"
 from data_loader import load_dataset_by_name  # noqa: E402
 
 
+class CustomSeq2SeqTrainer(Seq2SeqTrainer):
+    """Custom trainer that skips saving optimizer state to avoid I/O errors and save disk space."""
+    
+    def _save_optimizer_and_scheduler(self, output_dir):
+        """Override to skip saving optimizer and scheduler state.
+        
+        This prevents RuntimeError when optimizer state file is too large.
+        Model weights are sufficient for inference. If you need to resume training,
+        you'll need to restart from the saved model checkpoint.
+        """
+        pass
+
+
 def get_gpu_memory():
     """Get current GPU memory usage in GB."""
     if torch.cuda.is_available():
@@ -303,7 +316,7 @@ def main():
             'token_f1': round(token_f1 * 100, 2),
         }
     
-    trainer = Seq2SeqTrainer(
+    trainer = CustomSeq2SeqTrainer(
         model=model,
         args=train_args,
         data_collator=DataCollatorForSeq2Seq(tokenizer, model=model),
