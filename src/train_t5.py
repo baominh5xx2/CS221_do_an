@@ -464,11 +464,44 @@ def main():
     # Compute metrics function (with label normalization to avoid string mismatch)
     def compute_metrics(eval_pred):
         preds, labels = eval_pred
-        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        
+        # Clip predictions to valid token ID range to avoid overflow errors
+        vocab_size = len(tokenizer)
+        preds = np.clip(preds, 0, vocab_size - 1)
+        
+        # Decode predictions safely
+        try:
+            decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        except Exception as e:
+            # Fallback: decode one by one and skip problematic ones
+            decoded_preds = []
+            for pred_seq in preds:
+                try:
+                    # Clip to valid range again
+                    pred_seq = np.clip(pred_seq, 0, vocab_size - 1)
+                    decoded = tokenizer.decode(pred_seq, skip_special_tokens=True)
+                    decoded_preds.append(decoded)
+                except:
+                    decoded_preds.append("")  # Empty string if decode fails
         
         # Replace -100 in the labels as we can't decode them
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+        # Clip labels to valid range
+        labels = np.clip(labels, 0, vocab_size - 1)
+        
+        # Decode labels safely
+        try:
+            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+        except Exception as e:
+            # Fallback: decode one by one
+            decoded_labels = []
+            for label_seq in labels:
+                try:
+                    label_seq = np.clip(label_seq, 0, vocab_size - 1)
+                    decoded = tokenizer.decode(label_seq, skip_special_tokens=True)
+                    decoded_labels.append(decoded)
+                except:
+                    decoded_labels.append("")
         
         # Normalize labels to avoid string mismatch (case/whitespace differences)
         y_pred = [norm(x) for x in decoded_preds]
