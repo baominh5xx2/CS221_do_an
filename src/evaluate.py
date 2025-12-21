@@ -180,10 +180,17 @@ def main():
             # Check if ViHateT5 (Flax-based)
             if "ViHateT5" in args.model_name:
                 print(f"  Loading from Flax weights (ViHateT5)...")
-                model = T5ForConditionalGeneration.from_pretrained(args.model_name, from_flax=True)
+                # Load with low_cpu_mem_usage=False to ensure all weights are loaded properly
+                model = T5ForConditionalGeneration.from_pretrained(
+                    args.model_name, 
+                    from_flax=True,
+                    low_cpu_mem_usage=False
+                )
             else:
                 model = T5ForConditionalGeneration.from_pretrained(args.model_name)
-            model.to(device_str)
+            
+            # Move to device after loading
+            model = model.to(device_str)
             model.eval()
         else:
             from model import build_model
@@ -199,14 +206,22 @@ def main():
         if is_t5:
             print(f"  Detected T5 model, loading T5ForConditionalGeneration...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+            device_str = "cuda" if torch.cuda.is_available() else "cpu"
             # Try loading normally first, if fails try from_flax
             try:
-                model = T5ForConditionalGeneration.from_pretrained(args.model_path)
+                model = T5ForConditionalGeneration.from_pretrained(
+                    args.model_path,
+                    low_cpu_mem_usage=False
+                )
             except:
                 print(f"  Trying to load from Flax weights...")
-                model = T5ForConditionalGeneration.from_pretrained(args.model_path, from_flax=True)
-            device_str = "cuda" if torch.cuda.is_available() else "cpu"
-            model.to(device_str)
+                model = T5ForConditionalGeneration.from_pretrained(
+                    args.model_path, 
+                    from_flax=True,
+                    low_cpu_mem_usage=False
+                )
+            # Move to device after loading
+            model = model.to(device_str)
             model.eval()
         else:
             model, tokenizer = load_trained_model(args.model_path)
