@@ -22,7 +22,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, accuracy_score, f1_score
 from tqdm import tqdm
-from transformers import T5ForConditionalGeneration, AutoTokenizer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from data_loader import load_dataset_by_name, build_torch_dataset
 from model import load_trained_model
@@ -83,31 +83,26 @@ def evaluate_t5(model, tokenizer, eval_df, dataset_name, metadata, device, batch
     all_preds = []
     all_labels = []
     
-    # Generate predictions
+    # Generate predictions (similar to code sample)
     with torch.no_grad():
         for i in tqdm(range(0, len(mapped_df), batch_size), desc="Generating predictions"):
             batch_sources = mapped_df["source"].iloc[i:i+batch_size].tolist()
             batch_targets = mapped_df["target"].iloc[i:i+batch_size].tolist()
             
-            # Tokenize inputs
-            inputs = tokenizer(
-                batch_sources,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=max_length
-            ).to(device)
+            # Tokenize inputs individually (like in code sample)
+            input_ids_list = []
+            for text in batch_sources:
+                input_ids = tokenizer.encode(text, return_tensors="pt").to(device)
+                input_ids_list.append(input_ids)
             
-            # Generate
-            outputs = model.generate(
-                **inputs,
-                max_length=max_length,
-                num_beams=1,
-                do_sample=False
-            )
+            # Generate outputs for each input
+            output_ids_list = []
+            for input_ids in input_ids_list:
+                output_ids = model.generate(input_ids, max_length=max_length)
+                output_ids_list.append(output_ids)
             
             # Decode predictions
-            decoded_preds = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            decoded_preds = [tokenizer.decode(output_ids[0], skip_special_tokens=True) for output_ids in output_ids_list]
             all_preds.extend(decoded_preds)
             all_labels.extend(batch_targets)
     
@@ -170,72 +165,39 @@ def main():
     is_t5 = is_t5_model(model_source)
     
     # Load model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     if args.model_name:
         print(f"\n🤖 Loading model from Hugging Face: {args.model_name}...")
-        device_str = "cuda" if torch.cuda.is_available() else "cpu"
         
         if is_t5:
-            print(f"  Detected T5 model, loading T5ForConditionalGeneration...")
+            print(f"  Detected T5 model, loading AutoModelForSeq2SeqLM...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-            # Check if ViHateT5 (Flax-based)
-            if "ViHateT5" in args.model_name:
-                print(f"  Loading from Flax weights (ViHateT5)...")
-                # Load on CPU first to avoid meta tensor issues
-                model = T5ForConditionalGeneration.from_pretrained(
-                    args.model_name, 
-                    from_flax=True,
-                    low_cpu_mem_usage=False,
-                    torch_dtype=torch.float32
-                )
-                # Ensure model is on CPU (not meta) before moving to target device
-                model = model.to("cpu")
-            else:
-                model = T5ForConditionalGeneration.from_pretrained(args.model_name)
-            
-            # Move to target device after ensuring model is fully loaded
-            if device_str != "cpu":
-                model = model.to(device_str)
+            # Load model - AutoModelForSeq2SeqLM handles Flax weights automatically
+            model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+            model.to(device)
             model.eval()
         else:
             from model import build_model
             model, tokenizer = build_model(
                 args.model_name, 
                 num_labels=metadata["num_labels"],
-                device=device_str
+                device=str(device)
             )
             model.eval()
     else:
         print(f"\n🤖 Loading model from local path: {args.model_path}...")
         
         if is_t5:
-            print(f"  Detected T5 model, loading T5ForConditionalGeneration...")
+            print(f"  Detected T5 model, loading AutoModelForSeq2SeqLM...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-            device_str = "cuda" if torch.cuda.is_available() else "cpu"
-            # Try loading normally first, if fails try from_flax
-            try:
-                model = T5ForConditionalGeneration.from_pretrained(
-                    args.model_path,
-                    low_cpu_mem_usage=False
-                )
-            except:
-                print(f"  Trying to load from Flax weights...")
-                model = T5ForConditionalGeneration.from_pretrained(
-                    args.model_path, 
-                    from_flax=True,
-                    low_cpu_mem_usage=False,
-                    torch_dtype=torch.float32
-                )
-                # Ensure model is on CPU (not meta) before moving to target device
-                model = model.to("cpu")
-            
-            # Move to target device after ensuring model is fully loaded
-            if device_str != "cpu":
-                model = model.to(device_str)
+            # Load model - AutoModelForSeq2SeqLM handles Flax weights automatically
+            model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path)
+            model.to(device)
             model.eval()
         else:
-            model, tokenizer = load_trained_model(args.model_path)
+            model, tokenizer = load_trained_model(args.model_path, device=str(device))
     
-    device = "cuda" if next(model.parameters()).is_cuda else "cpu"
     print(f"  Device: {device}")
     
     # Select split
@@ -249,7 +211,7 @@ def main():
         print(f"\n🔍 Evaluating T5 model (generation-based)...")
         preds, labels, loss = evaluate_t5(
             model, tokenizer, eval_df, args.dataset, metadata, 
-            device, args.batch_size, args.max_length
+            str(device), args.batch_size, args.max_length
         )
     else:
         # Build dataset for classification models
@@ -260,7 +222,7 @@ def main():
         eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size)
         
         print(f"\n🔍 Evaluating classification model...")
-        preds, labels, loss = evaluate(model, eval_loader, device)
+        preds, labels, loss = evaluate(model, eval_loader, str(device))
     
     acc = accuracy_score(labels, preds)
     macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
