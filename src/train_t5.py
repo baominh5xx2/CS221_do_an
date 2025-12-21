@@ -264,6 +264,10 @@ def main():
     print(f"  Warmup Ratio   : {args.warmup_ratio}")
     print(f"  Optimizer      : {args.optim}")
     
+    # Store individual test datasets for per-dataset evaluation
+    individual_test_dfs = {}
+    individual_test_metadata = {}
+    
     if is_multi_dataset:
         print(f"\n📚 Loading {len(dataset_list)} datasets for multi-task training...")
         print(f"  Datasets: {', '.join(dataset_list)}")
@@ -274,23 +278,27 @@ def main():
         
         for dataset_name in dataset_list:
             print(f"\n  Loading {dataset_name}...")
-            train_df, val_df, test_df, metadata = load_dataset_by_name(dataset_name, dev_ratio=args.dev_ratio)
+            train_df_single, val_df_single, test_df_single, metadata_single = load_dataset_by_name(dataset_name, dev_ratio=args.dev_ratio)
             
             # Map to source-target format
-            train_df = map_dataset(train_df, dataset_name, metadata)
-            val_df = map_dataset(val_df, dataset_name, metadata)
-            test_df = map_dataset(test_df, dataset_name, metadata)
+            train_df_single = map_dataset(train_df_single, dataset_name, metadata_single)
+            val_df_single = map_dataset(val_df_single, dataset_name, metadata_single)
+            test_df_single = map_dataset(test_df_single, dataset_name, metadata_single)
             
             # Drop NA
-            train_df = train_df.dropna()
-            val_df = val_df.dropna()
-            test_df = test_df.dropna()
+            train_df_single = train_df_single.dropna()
+            val_df_single = val_df_single.dropna()
+            test_df_single = test_df_single.dropna()
             
-            print(f"    Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+            print(f"    Train: {len(train_df_single)}, Val: {len(val_df_single)}, Test: {len(test_df_single)}")
             
-            train_dfs.append(train_df)
-            val_dfs.append(val_df)
-            test_dfs.append(test_df)
+            # Store individual test datasets for later evaluation
+            individual_test_dfs[dataset_name] = test_df_single.copy()
+            individual_test_metadata[dataset_name] = metadata_single.copy()
+            
+            train_dfs.append(train_df_single)
+            val_dfs.append(val_df_single)
+            test_dfs.append(test_df_single)
         
         # Concatenate all datasets
         print(f"\n🔄 Concatenating datasets...")
@@ -575,14 +583,14 @@ def main():
     
     # Print classification report
     print("\n" + "=" * 80)
-    print("📊 CLASSIFICATION REPORT (Test Set)")
+    print("📊 CLASSIFICATION REPORT (Combined Test Set)")
     print("=" * 80)
     report = classification_report(y_true, y_pred, labels=unique_labels, zero_division=0, digits=4)
     print(report)
     
     # Print confusion matrix
     print("\n" + "=" * 80)
-    print("📊 CONFUSION MATRIX (Test Set)")
+    print("📊 CONFUSION MATRIX (Combined Test Set)")
     print("=" * 80)
     cm = confusion_matrix(y_true, y_pred, labels=unique_labels)
     cm_df = pd.DataFrame(cm, index=unique_labels, columns=unique_labels)
@@ -597,11 +605,11 @@ def main():
     for col in numeric_cols:
         if col in report_df.columns:
             report_df[col] = report_df[col].apply(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
-    report_df.to_csv(f"{output_dir}/classification_report.csv", float_format='%.4f')
-    print(f"\n💾 Saved classification report to {output_dir}/classification_report.csv")
+    report_df.to_csv(f"{output_dir}/classification_report_combined.csv", float_format='%.4f')
+    print(f"\n💾 Saved classification report to {output_dir}/classification_report_combined.csv")
     
-    cm_df.to_csv(f"{output_dir}/confusion_matrix.csv")
-    print(f"💾 Saved confusion matrix to {output_dir}/confusion_matrix.csv")
+    cm_df.to_csv(f"{output_dir}/confusion_matrix_combined.csv")
+    print(f"💾 Saved confusion matrix to {output_dir}/confusion_matrix_combined.csv")
     
     # Save detailed predictions for error analysis
     predictions_df = pd.DataFrame({
@@ -610,8 +618,125 @@ def main():
         'pred_label': y_pred,
         'correct': [1 if p == t else 0 for p, t in zip(y_pred, y_true)]
     })
-    predictions_df.to_csv(f"{output_dir}/predictions_detailed.csv", index=False)
-    print(f"💾 Saved detailed predictions to {output_dir}/predictions_detailed.csv")
+    predictions_df.to_csv(f"{output_dir}/predictions_detailed_combined.csv", index=False)
+    print(f"💾 Saved detailed predictions to {output_dir}/predictions_detailed_combined.csv")
+    
+    # Evaluate on each individual dataset if multi-dataset training
+    per_dataset_results = []
+    if is_multi_dataset and individual_test_dfs:
+        print("\n" + "=" * 80)
+        print("📊 EVALUATING ON INDIVIDUAL DATASETS")
+        print("=" * 80)
+        
+        for dataset_name in dataset_list:
+            print(f"\n{'='*80}")
+            print(f"📊 Evaluating on {dataset_name}...")
+            print(f"{'='*80}")
+            
+            test_df_single = individual_test_dfs[dataset_name]
+            metadata_single = individual_test_metadata[dataset_name]
+            
+            # Convert to HuggingFace Dataset and tokenize
+            test_data_single = Dataset.from_pandas(test_df_single.reset_index(drop=True))
+            test_tokenized_single = test_data_single.map(
+                preprocess_function,
+                batched=True,
+                remove_columns=test_data_single.column_names
+            )
+            
+            # Evaluate
+            test_results_single = trainer.evaluate(test_tokenized_single)
+            
+            # Generate predictions
+            predictions_single = trainer.predict(test_tokenized_single)
+            preds_single = predictions_single.predictions
+            labels_single = predictions_single.label_ids
+            
+            # Decode predictions and labels safely
+            vocab_size = len(tokenizer)
+            preds_single = np.clip(preds_single, 0, vocab_size - 1)
+            labels_single = np.where(labels_single != -100, labels_single, tokenizer.pad_token_id)
+            labels_single = np.clip(labels_single, 0, vocab_size - 1)
+            
+            try:
+                decoded_preds_single = tokenizer.batch_decode(preds_single, skip_special_tokens=True)
+                decoded_labels_single = tokenizer.batch_decode(labels_single, skip_special_tokens=True)
+            except:
+                decoded_preds_single = []
+                decoded_labels_single = []
+                for p, l in zip(preds_single, labels_single):
+                    try:
+                        decoded_preds_single.append(tokenizer.decode(p, skip_special_tokens=True))
+                        decoded_labels_single.append(tokenizer.decode(l, skip_special_tokens=True))
+                    except:
+                        decoded_preds_single.append("")
+                        decoded_labels_single.append("")
+            
+            # Normalize labels
+            y_pred_single = [norm(x) for x in decoded_preds_single]
+            y_true_single = [norm(x) for x in decoded_labels_single]
+            
+            # Calculate metrics
+            acc_single = accuracy_score(y_true_single, y_pred_single) * 100
+            f1_macro_single = f1_score(y_true_single, y_pred_single, average="macro", zero_division=0) * 100
+            f1_weighted_single = f1_score(y_true_single, y_pred_single, average="weighted", zero_division=0) * 100
+            
+            # Get unique labels
+            unique_labels_single = sorted(set(y_true_single + y_pred_single))
+            
+            # Print results
+            print(f"\n  Accuracy: {acc_single:.2f}%")
+            print(f"  Macro F1: {f1_macro_single:.2f}%")
+            print(f"  Weighted F1: {f1_weighted_single:.2f}%")
+            print(f"  Loss: {test_results_single.get('eval_loss', 'N/A'):.4f}")
+            
+            # Classification report
+            print(f"\n  Classification Report:")
+            report_single = classification_report(y_true_single, y_pred_single, labels=unique_labels_single, zero_division=0, digits=4)
+            print(report_single)
+            
+            # Save per-dataset results
+            report_dict_single = classification_report(y_true_single, y_pred_single, labels=unique_labels_single, zero_division=0, output_dict=True, digits=4)
+            report_df_single = pd.DataFrame(report_dict_single).transpose()
+            for col in numeric_cols:
+                if col in report_df_single.columns:
+                    report_df_single[col] = report_df_single[col].apply(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+            report_df_single.to_csv(f"{output_dir}/classification_report_{dataset_name}.csv", float_format='%.4f')
+            
+            cm_single = confusion_matrix(y_true_single, y_pred_single, labels=unique_labels_single)
+            cm_df_single = pd.DataFrame(cm_single, index=unique_labels_single, columns=unique_labels_single)
+            cm_df_single.to_csv(f"{output_dir}/confusion_matrix_{dataset_name}.csv")
+            
+            predictions_df_single = pd.DataFrame({
+                'text': test_df_single['source'].values[:len(y_pred_single)],
+                'true_label': y_true_single,
+                'pred_label': y_pred_single,
+                'correct': [1 if p == t else 0 for p, t in zip(y_pred_single, y_true_single)]
+            })
+            predictions_df_single.to_csv(f"{output_dir}/predictions_detailed_{dataset_name}.csv", index=False)
+            
+            print(f"  💾 Saved results to {output_dir}/classification_report_{dataset_name}.csv")
+            
+            # Store results for summary
+            per_dataset_results.append({
+                'Dataset': dataset_name,
+                'Accuracy': round(acc_single, 4),
+                'Macro_F1': round(f1_macro_single, 4),
+                'Weighted_F1': round(f1_weighted_single, 4),
+                'Loss': round(test_results_single.get('eval_loss', 0), 4),
+                'Test_Samples': len(test_df_single)
+            })
+        
+        # Save summary of all datasets
+        if per_dataset_results:
+            summary_df = pd.DataFrame(per_dataset_results)
+            summary_df.to_csv(f"{output_dir}/per_dataset_results_summary.csv", index=False)
+            print(f"\n{'='*80}")
+            print("📊 PER-DATASET RESULTS SUMMARY")
+            print(f"{'='*80}")
+            print(summary_df.to_string(index=False))
+            print(f"{'='*80}")
+            print(f"💾 Saved summary to {output_dir}/per_dataset_results_summary.csv")
     
     # Save final model
     print(f"\n💾 Saving model to {output_dir}...")
