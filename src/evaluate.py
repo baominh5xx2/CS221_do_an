@@ -2,11 +2,16 @@
 Evaluation script for trained models.
 
 Usage:
+    # Evaluate with local model:
     python src/evaluate.py --model_path models/ViHSD_phobert --dataset ViHSD
+    
+    # Evaluate with Hugging Face model:
+    python src/evaluate.py --model_name username/model-name --dataset ViHSD
 """
 
 import argparse
 import pandas as pd
+import torch
 from pathlib import Path
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, accuracy_score, f1_score
@@ -20,8 +25,12 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Evaluate trained model")
     
-    parser.add_argument("--model_path", type=str, required=True,
-                       help="Path to trained model directory")
+    model_group = parser.add_mutually_exclusive_group(required=True)
+    model_group.add_argument("--model_path", type=str,
+                            help="Path to trained model directory (local)")
+    model_group.add_argument("--model_name", type=str,
+                            help="Hugging Face model name/identifier (e.g., 'username/model-name')")
+    
     parser.add_argument("--dataset", type=str, required=True,
                        help="Dataset to evaluate on (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M)")
     parser.add_argument("--batch_size", type=int, default=16,
@@ -44,21 +53,38 @@ def main():
     print("=" * 80)
     print(f"Evaluation Configuration:")
     print("=" * 80)
-    print(f"  Model path: {args.model_path}")
+    if args.model_path:
+        print(f"  Model path (local): {args.model_path}")
+        model_source = args.model_path
+    else:
+        print(f"  Model name (Hugging Face): {args.model_name}")
+        model_source = args.model_name
     print(f"  Dataset: {args.dataset}")
     print(f"  Split: {args.split}")
     print(f"  Batch size: {args.batch_size}")
     print("=" * 80)
     
-    # Load model
-    print(f"\n🤖 Loading model from {args.model_path}...")
-    model, tokenizer = load_trained_model(args.model_path)
-    device = "cuda" if next(model.parameters()).is_cuda else "cpu"
-    print(f"  Device: {device}")
-    
-    # Load dataset
+    # Load dataset first to get metadata (needed for Hugging Face models)
     print(f"\n📚 Loading {args.dataset} dataset...")
     train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset)
+    
+    # Load model
+    if args.model_name:
+        print(f"\n🤖 Loading model from Hugging Face: {args.model_name}...")
+        from model import build_model
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
+        model, tokenizer = build_model(
+            args.model_name, 
+            num_labels=metadata["num_labels"],
+            device=device_str
+        )
+        model.eval()  # Set to evaluation mode
+    else:
+        print(f"\n🤖 Loading model from local path: {args.model_path}...")
+        model, tokenizer = load_trained_model(args.model_path)
+    
+    device = "cuda" if next(model.parameters()).is_cuda else "cpu"
+    print(f"  Device: {device}")
     
     # Select split
     split_map = {"train": train_df, "val": val_df, "test": test_df}
@@ -99,7 +125,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     results = {
-        "model_path": args.model_path,
+        "model_source": model_source,
         "dataset": args.dataset,
         "split": args.split,
         "loss": loss,

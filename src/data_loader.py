@@ -216,13 +216,14 @@ def load_vihsd_processed() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Di
     return train_df, val_df, test_df, metadata
 
 
-def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1, max_samples: int = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
     Load VOZ-HSD 2M dataset from HuggingFace.
     
     Args:
-        split_name: "balanced" or "hate_only" - loads the corresponding CSV file directly
+        split_name: "full" (data.csv), "balanced" (data_balance.csv), or "hate_only" (data_full_date.csv)
         dev_ratio: Validation split ratio (default: 0.1)
+        max_samples: Maximum number of samples to use (limit BEFORE splitting). If None, use all samples.
     
     Returns:
         Tuple of (train_df, val_df, test_df, metadata)
@@ -231,21 +232,38 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     
     # Load the correct CSV file based on split_name
     if split_name == "hate_only":
-        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/blob/main/data_full_date.csv"
-        print(f"  Loading hate_only.csv from HuggingFace...")
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/resolve/main/data_full_date.csv"
+        print(f"  Loading data_full_date.csv (hate_only) from HuggingFace...")
         full_df = pd.read_csv(file_url).dropna()
     elif split_name == "balanced":
-        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/blob/main/data_balance.csv"
-        print(f"  Loading balanced_dataset.csv from HuggingFace...")
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/resolve/main/data_balance.csv"
+        print(f"  Loading data_balance.csv (balanced) from HuggingFace...")
+        full_df = pd.read_csv(file_url).dropna()
+    elif split_name == "full":
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/resolve/main/data.csv"
+        print(f"  Loading data.csv (full dataset) from HuggingFace...")
         full_df = pd.read_csv(file_url).dropna()
     else:
-        # Default: load full dataset
-        print(f"  Loading default dataset from HuggingFace...")
-        dataset = load_dataset("Minhbao5xx2/VOZ-HSD_2M", "default")
-        full_df = dataset["train"].to_pandas().dropna()
+        # Default: load balanced dataset
+        file_url = "https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD/resolve/main/data_balance.csv"
+        print(f"  Loading default (balanced) dataset from HuggingFace...")
+        full_df = pd.read_csv(file_url).dropna()
     
     print(f"  Total samples: {len(full_df)}")
     print(f"  Class distribution: {full_df['labels'].value_counts().to_dict()}")
+    
+    # Limit samples BEFORE splitting (to avoid wasting time on val/test samples)
+    if max_samples is not None and len(full_df) > max_samples:
+        original_size = len(full_df)
+        print(f"  📊 Limiting dataset to {max_samples} samples (before splitting)...")
+        # Stratified sampling to maintain class distribution
+        full_df, _ = train_test_split(
+            full_df,
+            train_size=max_samples,
+            random_state=42,
+            stratify=full_df["labels"]
+        )
+        print(f"  ✅ Reduced from {original_size} to {len(full_df)} samples (stratified)")
     
     # Split based on dev_ratio
     # test_ratio = dev_ratio (same as validation)
@@ -261,9 +279,9 @@ def load_voz_hsd_2m(split_name: str = "balanced", dev_ratio: float = 0.1) -> Tup
     )
     
     metadata = {
-        "name": f"VOZ-HSD_2M_{split_name}",
+        "name": f"VOZ-HSD_{split_name}",
         "text_col": "texts",
-        "label_col": "predicted_labels",
+        "label_col": "labels",  # Use 'labels' column (not 'predicted_labels')
         "num_labels": 2  # Binary: 0=non-hate, 1=hate
     }
     
@@ -311,8 +329,44 @@ def load_from_huggingface(dataset_name: str, dev_ratio: float = 0.1) -> Tuple[pd
             if "test" in available_splits:
                 test_df = dataset["test"].to_pandas().dropna()
             
-            # If no splits, use the first available split and split it
-            if train_df is None and len(available_splits) > 0:
+            # If train exists but val/test are missing, split train into train/val/test
+            if train_df is not None and (val_df is None or test_df is None):
+                print(f"  ⚠️  Dataset only has 'train' split. Splitting into train/val/test using dev_ratio={dev_ratio}...")
+                # Use train_df as full dataset to split
+                full_df = train_df.copy()
+                train_df = None  # Reset to split it
+                
+                # Try to detect label column for stratification
+                label_col_for_split = None
+                for col in ["label", "labels", "Label", "Labels", "toxicity", "Toxicity", "label_id"]:
+                    if col in full_df.columns:
+                        label_col_for_split = col
+                        break
+                
+                # Split into train/val/test
+                test_ratio = dev_ratio
+                if label_col_for_split is not None:
+                    # Use stratified split if label column found
+                    train_df, temp_df = train_test_split(
+                        full_df, test_size=(dev_ratio + test_ratio), random_state=42,
+                        stratify=full_df[label_col_for_split]
+                    )
+                    val_df, test_df = train_test_split(
+                        temp_df, test_size=0.5, random_state=42,
+                        stratify=temp_df[label_col_for_split]
+                    )
+                else:
+                    # Regular split without stratification
+                    train_df, temp_df = train_test_split(
+                        full_df, test_size=(dev_ratio + test_ratio), random_state=42
+                    )
+                    val_df, test_df = train_test_split(
+                        temp_df, test_size=0.5, random_state=42
+                    )
+                print(f"  ✅ Split complete: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
+            
+            # If no train split at all, use the first available split and split it
+            elif train_df is None and len(available_splits) > 0:
                 full_df = dataset[available_splits[0]].to_pandas().dropna()
                 # Try to detect label column for stratification
                 label_col_for_split = None
@@ -421,7 +475,7 @@ def load_from_huggingface(dataset_name: str, dev_ratio: float = 0.1) -> Tuple[pd
         raise ValueError(f"Error loading from HuggingFace: {str(e)}")
 
 
-def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: float = 0.1) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: float = 0.1, max_samples: int = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
     Load dataset by name. Falls back to HuggingFace Hub if not found in predefined list.
     
@@ -448,6 +502,12 @@ def load_dataset_by_name(dataset_name: str, split_name: str = None, dev_ratio: f
     if "VOZ-HSD_2M" in dataset_name or dataset_name == "Minhbao5xx2/VOZ-HSD_2M":
         split_to_use = split_name if split_name else "balanced"
         return load_voz_hsd_2m(split_to_use, dev_ratio)
+    
+    # Handle Minhbao5xx2/re_VOZ-HSD (different from VOZ-HSD_2M)
+    if dataset_name == "Minhbao5xx2/re_VOZ-HSD":
+        # Use load_voz_hsd_2m with split_name parameter
+        split_to_use = split_name if split_name else "balanced"
+        return load_voz_hsd_2m(split_to_use, dev_ratio, max_samples=max_samples)
     
     # Try predefined loaders first
     if dataset_name in loaders:
