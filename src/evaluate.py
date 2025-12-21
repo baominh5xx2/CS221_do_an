@@ -2,16 +2,6 @@
 Evaluation script for trained models.
 
 Supports both classification models (PhoBERT, ViSoBERT, etc.) and T5 models.
-
-Usage:
-    # Evaluate with local model:
-    python src/evaluate.py --model_path models/ViHSD_phobert --dataset ViHSD
-
-    # Evaluate with Hugging Face classification model:
-    python src/evaluate.py --model_name username/model-name --dataset ViHSD
-
-    # Evaluate with Hugging Face T5 model (e.g., ViHateT5):
-    python src/evaluate.py --model_name tarudesu/ViHateT5-base --dataset ViHSD
 """
 
 import argparse
@@ -31,13 +21,11 @@ from utils import evaluate
 
 
 def is_t5_model(model_path_or_name: str) -> bool:
-    """Check if model is a T5 model based on name."""
     model_lower = (model_path_or_name or "").lower()
     return ("t5" in model_lower) or ("vit5" in model_lower) or ("vihatet5" in model_lower)
 
 
 def map_dataset_for_t5(df, dataset_name, metadata):
-    """Map dataset to source-target format for T5 models."""
     try:
         from train_t5 import map_dataset
         return map_dataset(df, dataset_name, metadata)
@@ -46,7 +34,6 @@ def map_dataset_for_t5(df, dataset_name, metadata):
 
         current_file = Path(__file__).resolve()
         train_t5_path = current_file.parent / "train_t5.py"
-
         if not train_t5_path.exists():
             train_t5_path = current_file.parent.parent / "src" / "train_t5.py"
 
@@ -60,7 +47,6 @@ def map_dataset_for_t5(df, dataset_name, metadata):
 
 
 def normalize_label(s: str) -> str:
-    """Normalize label: strip, uppercase, take first word, validate."""
     VALID = {"CLEAN", "OFFENSIVE", "HATE", "NONE", "TOXIC"}
     s = (s or "").strip().upper()
     s = s.split()[0] if s else ""
@@ -68,6 +54,7 @@ def normalize_label(s: str) -> str:
 
 
 def _has_meta_tensors(model: torch.nn.Module) -> bool:
+    # meta tensors have no data; .to() will crash and copy_ load can be a no-op. [page:1][page:2]
     for p in model.parameters():
         if getattr(p, "is_meta", False) or p.device.type == "meta":
             return True
@@ -79,39 +66,48 @@ def _has_meta_tensors(model: torch.nn.Module) -> bool:
 
 def load_t5_model(model_id_or_path: str, device: torch.device):
     """
-    Robust loader to avoid meta-tensor issues:
-    - Force low_cpu_mem_usage=False (avoid meta init in many cases)
-    - Avoid manual random init of missing weights
+    Load T5 robustly on Kaggle:
+    - Force full init (avoid meta) with _fast_init=False
+    - Force low_cpu_mem_usage=False
+    If a load path still leaves meta tensors, retry with other backend.
+    Meta tensors can't be moved with .to(); to_empty is the right primitive. [page:1]
     """
     tokenizer = AutoTokenizer.from_pretrained(model_id_or_path)
 
-    # 1) Prefer PyTorch weights if available
+    common_kwargs = dict(
+        torch_dtype=torch.float32,
+        low_cpu_mem_usage=False,
+        _fast_init=False,  # key: avoid meta init + "copying ... to meta is a no-op". [page:2]
+    )
+
+    last_err = None
+
+    # Attempt 1: normal PyTorch weights (best case)
     try:
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_id_or_path,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=False,
-        )
-    except Exception:
-        # 2) Fallback to Flax conversion
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_id_or_path,
-            from_flax=True,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=False,
-        )
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_id_or_path, **common_kwargs)
+        if not _has_meta_tensors(model):
+            model = model.to(device)
+            model.eval()
+            return model, tokenizer
+    except Exception as e:
+        last_err = e
 
-    # Safety check: if still meta, fail fast with actionable message
-    if _has_meta_tensors(model):
-        raise RuntimeError(
-            "Model contains meta tensors after loading. "
-            "Try upgrading transformers/torch, and ensure low_cpu_mem_usage=False "
-            "and that the repo provides compatible weights (PyTorch or convertible Flax)."
-        )
+    # Attempt 2: Flax -> PyTorch conversion
+    try:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_id_or_path, from_flax=True, **common_kwargs)
+        if not _has_meta_tensors(model):
+            model = model.to(device)
+            model.eval()
+            return model, tokenizer
+    except Exception as e:
+        last_err = e
 
-    model = model.to(device)
-    model.eval()
-    return model, tokenizer
+    # If still meta, do NOT continue inference (weights are not materialized). [page:1][page:2]
+    raise RuntimeError(
+        "T5 load failed or produced meta tensors (weights not materialized). "
+        "This usually means the checkpoint loading happened into meta params (no-op) or the repo is incompatible. "
+        f"Last error: {repr(last_err)}"
+    )
 
 
 def evaluate_t5(
@@ -124,9 +120,7 @@ def evaluate_t5(
     batch_size=16,
     max_length=256,
 ):
-    """Evaluate T5 model using generation (batched)."""
     model.eval()
-
     mapped_df = map_dataset_for_t5(eval_df.copy(), dataset_name, metadata)
 
     all_preds = []
@@ -145,7 +139,6 @@ def evaluate_t5(
                 max_length=max_length,
             ).to(device)
 
-            # Labels are short; keep generation bounded
             out_ids = model.generate(
                 **enc,
                 max_new_tokens=8,
@@ -158,8 +151,7 @@ def evaluate_t5(
 
     y_pred = [normalize_label(p) for p in all_preds]
     y_true = [normalize_label(t) for t in all_labels]
-
-    return np.array(y_pred), np.array(y_true), 0.0  # No loss for pure generation eval
+    return np.array(y_pred), np.array(y_true), 0.0
 
 
 def parse_args():
@@ -167,28 +159,13 @@ def parse_args():
 
     model_group = parser.add_mutually_exclusive_group(required=True)
     model_group.add_argument("--model_path", type=str, help="Path to trained model directory (local)")
-    model_group.add_argument(
-        "--model_name",
-        type=str,
-        help="Hugging Face model name/identifier (e.g., 'username/model-name')",
-    )
+    model_group.add_argument("--model_name", type=str, help="Hugging Face model name/identifier")
 
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        required=True,
-        help="Dataset to evaluate on (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M)",
-    )
-    parser.add_argument("--batch_size", type=int, default=16, help="Evaluation batch size")
-    parser.add_argument("--max_length", type=int, default=256, help="Maximum sequence length")
-    parser.add_argument("--output_dir", type=str, default="results", help="Output directory for results")
-    parser.add_argument(
-        "--split",
-        type=str,
-        default="test",
-        choices=["train", "val", "test"],
-        help="Dataset split to evaluate",
-    )
+    parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--max_length", type=int, default=256)
+    parser.add_argument("--output_dir", type=str, default="results")
+    parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
 
     return parser.parse_args()
 
@@ -228,12 +205,7 @@ def main():
             model, tokenizer = load_t5_model(args.model_name, device)
         else:
             from model import build_model
-
-            model, tokenizer = build_model(
-                args.model_name,
-                num_labels=metadata["num_labels"],
-                device=str(device),
-            )
+            model, tokenizer = build_model(args.model_name, num_labels=metadata["num_labels"], device=str(device))
             model.eval()
     else:
         print(f"\nLoading model from local path: {args.model_path} ...")
@@ -276,7 +248,6 @@ def main():
     acc = accuracy_score(labels, preds)
     macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
     weighted_f1 = f1_score(labels, preds, average="weighted", zero_division=0)
-
     unique_labels = sorted(set(list(labels) + list(preds)))
 
     print("\n" + "=" * 80)
@@ -310,12 +281,7 @@ def main():
     print(f"\nSaved results to {results_file}")
 
     report_dict = classification_report(
-        labels,
-        preds,
-        labels=unique_labels,
-        digits=4,
-        output_dict=True,
-        zero_division=0,
+        labels, preds, labels=unique_labels, digits=4, output_dict=True, zero_division=0
     )
     report_df = pd.DataFrame(report_dict).transpose()
     report_file = output_dir / f"report_{args.dataset}_{args.split}.csv"
