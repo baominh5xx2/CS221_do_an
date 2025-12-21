@@ -30,6 +30,7 @@ from transformers import (
     DataCollatorForSeq2Seq,
     T5ForConditionalGeneration,
     AutoTokenizer,
+    TrainerCallback,
 )
 
 # Set tokenizer parallelism to false
@@ -55,11 +56,11 @@ def parse_args():
                        help="Number of training epochs")
     parser.add_argument("--learning_rate", type=float, default=3e-4,
                        help="Learning rate")
-    parser.add_argument("--warmup_ratio", type=float, default=0.0,
+    parser.add_argument("--warmup_ratio", type=float, default=0.005,
                        help="Warmup ratio (0.0 = no warmup)")
-    parser.add_argument("--lr_scheduler_type", type=str, default="constant",
+    parser.add_argument("--lr_scheduler_type", type=str, default="linear",
                        help="Learning rate scheduler type (constant = no scheduling, keeps LR fixed)")
-    parser.add_argument("--optim", type=str, default="adafactor",
+    parser.add_argument("--optim", type=str, default="adamw_torch",
                        help="Optimizer (adafactor, adamw_torch, etc.)")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                        help="Number of updates steps to accumulate before performing a backward/update pass")
@@ -267,6 +268,9 @@ def main():
     # Store individual test datasets for per-dataset evaluation
     individual_test_dfs = {}
     individual_test_metadata = {}
+    # Store individual validation datasets for per-epoch evaluation
+    individual_val_dfs = {}
+    individual_val_metadata = {}
     
     if is_multi_dataset:
         print(f"\n📚 Loading {len(dataset_list)} datasets for multi-task training...")
@@ -295,6 +299,9 @@ def main():
             # Store individual test datasets for later evaluation
             individual_test_dfs[dataset_name] = test_df_single.copy()
             individual_test_metadata[dataset_name] = metadata_single.copy()
+            # Store individual validation datasets for per-epoch evaluation
+            individual_val_dfs[dataset_name] = val_df_single.copy()
+            individual_val_metadata[dataset_name] = metadata_single.copy()
             
             train_dfs.append(train_df_single)
             val_dfs.append(val_df_single)
@@ -411,6 +418,21 @@ def main():
     )
     print(f"  Keys of tokenized dataset: {list(train_tokenized.features)}")
     
+    # Tokenize individual validation datasets for per-epoch evaluation
+    individual_val_tokenized = {}
+    if is_multi_dataset and individual_val_dfs:
+        print("\n🔢 Tokenizing individual validation datasets for per-epoch evaluation...")
+        for dataset_name in dataset_list:
+            val_df_single = individual_val_dfs[dataset_name]
+            val_data_single = Dataset.from_pandas(val_df_single.reset_index(drop=True))
+            val_tokenized_single = val_data_single.map(
+                preprocess_function,
+                batched=True,
+                remove_columns=val_data_single.column_names
+            )
+            individual_val_tokenized[dataset_name] = val_tokenized_single
+            print(f"  Tokenized {dataset_name} validation: {len(val_tokenized_single)} samples")
+    
     # Output directory
     if args.output_dir:
         output_dir = args.output_dir
@@ -438,7 +460,6 @@ def main():
         lr_scheduler_type=args.lr_scheduler_type,
         warmup_ratio=args.warmup_ratio,
         optim=args.optim,
-        #label_smoothing_factor=args.label_smoothing_factor,
         logging_dir=f"{output_dir}/logs",
         logging_strategy="epoch",
         save_strategy="epoch",
@@ -450,7 +471,6 @@ def main():
         do_train=True,
         do_eval=True,
         predict_with_generate=True,
-        #generation_max_length=args.max_length,
         report_to="none",  # Disable wandb/tensorboard logging (use local logs only)
     )
     
@@ -469,58 +489,130 @@ def main():
         s = s.split()[0] if s else ""
         return s if s in VALID else "OTHER"
     
-    # Compute metrics function (with label normalization to avoid string mismatch)
+    # Custom callback to evaluate on individual datasets after each epoch
+    class PerDatasetEvalCallback(TrainerCallback):
+        def __init__(self, individual_val_tokenized, tokenizer, norm_func):
+            self.individual_val_tokenized = individual_val_tokenized
+            self.tokenizer = tokenizer
+            self.norm = norm_func
+            self.vocab_size = len(tokenizer)
+            self.trainer = None  # Will be set by trainer
+        
+        def on_train_begin(self, args, state, control, model=None, **kwargs):
+            """Store trainer reference when training begins."""
+            # Trainer is passed in kwargs
+            if 'trainer' in kwargs:
+                self.trainer = kwargs['trainer']
+        
+        def on_epoch_end(self, args, state, control, model=None, **kwargs):
+            """Evaluate on each individual dataset after each epoch."""
+            if not self.individual_val_tokenized:
+                return
+            
+            # Get trainer from kwargs or use stored reference
+            trainer = kwargs.get('trainer', self.trainer)
+            if trainer is None:
+                return
+            
+            print("\n" + "=" * 80)
+            print(f"📊 PER-DATASET VALIDATION RESULTS (Epoch {int(state.epoch)})")
+            print("=" * 80)
+            
+            per_dataset_f1 = {}
+            
+            for dataset_name, val_tokenized_single in self.individual_val_tokenized.items():
+                # Get predictions for F1 calculation
+                predictions = trainer.predict(val_tokenized_single)
+                preds = predictions.predictions
+                labels = predictions.label_ids
+                
+                # Decode predictions (stable approach - no nltk)
+                decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+                # Replace -100 in the labels as we can't decode them.
+                labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
+                decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+                
+                # Normalize labels (strip and uppercase for comparison)
+                decoded_preds = [pred.strip().upper() for pred in decoded_preds]
+                decoded_labels = [label.strip().upper() for label in decoded_labels]
+                
+                # Calculate F1 macro
+                f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0) * 100
+                
+                # Calculate accuracy
+                acc = accuracy_score(decoded_labels, decoded_preds) * 100
+                
+                # Get loss from evaluation
+                eval_results = trainer.evaluate(eval_dataset=val_tokenized_single)
+                loss = eval_results.get('eval_loss', 0.0)
+                
+                per_dataset_f1[dataset_name] = f1_macro
+                
+                print(f"  {dataset_name:15s} | Accuracy: {acc:6.2f}% | Macro F1: {f1_macro:6.2f}% | Loss: {loss:.4f}")
+            
+            print("=" * 80)
+            
+            # Store in trainer state for logging
+            if not hasattr(state, 'per_dataset_f1_history'):
+                state.per_dataset_f1_history = []
+            state.per_dataset_f1_history.append({
+                'epoch': int(state.epoch),
+                **per_dataset_f1
+            })
+    
+    # Compute metrics function (following VIHOS_T5.py approach - stable and simple)
     def compute_metrics(eval_pred):
-        preds, labels = eval_pred
+        predictions, labels = eval_pred
         
-        # Clip predictions to valid token ID range to avoid overflow errors
-        vocab_size = len(tokenizer)
-        preds = np.clip(preds, 0, vocab_size - 1)
+        # Safety: handle tuple/3D array (following VIHOS_T5.py)
+        if isinstance(predictions, tuple):
+            predictions = predictions[0]
         
-        # Decode predictions safely
-        try:
-            decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-        except Exception as e:
-            # Fallback: decode one by one and skip problematic ones
-            decoded_preds = []
-            for pred_seq in preds:
-                try:
-                    # Clip to valid range again
-                    pred_seq = np.clip(pred_seq, 0, vocab_size - 1)
-                    decoded = tokenizer.decode(pred_seq, skip_special_tokens=True)
-                    decoded_preds.append(decoded)
-                except:
-                    decoded_preds.append("")  # Empty string if decode fails
+        predictions = np.array(predictions)
         
-        # Replace -100 in the labels as we can't decode them
+        # If 3D (logits), take argmax
+        if predictions.ndim == 3:
+            predictions = predictions.argmax(axis=-1)
+        
+        # Clip to valid vocab range
+        predictions = np.clip(predictions, 0, len(tokenizer) - 1).astype(np.int64)
+        
+        decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        
+        # Decode labels
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        # Clip labels to valid range
-        labels = np.clip(labels, 0, vocab_size - 1)
+        labels = np.clip(labels, 0, len(tokenizer) - 1).astype(np.int64)
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
         
-        # Decode labels safely
-        try:
-            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-        except Exception as e:
-            # Fallback: decode one by one
-            decoded_labels = []
-            for label_seq in labels:
-                try:
-                    label_seq = np.clip(label_seq, 0, vocab_size - 1)
-                    decoded = tokenizer.decode(label_seq, skip_special_tokens=True)
-                    decoded_labels.append(decoded)
-                except:
-                    decoded_labels.append("")
+        # Normalize labels (strip and uppercase for comparison)
+        decoded_preds = [pred.strip().upper() for pred in decoded_preds]
+        decoded_labels = [label.strip().upper() for label in decoded_labels]
         
-        # Normalize labels to avoid string mismatch (case/whitespace differences)
-        y_pred = [norm(x) for x in decoded_preds]
-        y_true = [norm(x) for x in decoded_labels]
+        # Calculate F1 macro
+        f1_macro = f1_score(decoded_labels, decoded_preds, average='macro', zero_division=0)
+        
+        # Exact match (following VIHOS_T5.py)
+        exact_match = sum(1 for p, l in zip(decoded_preds, decoded_labels) if p == l) / len(decoded_preds) if decoded_preds else 0.0
+        
+        # Add mean generated length
+        prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
+        gen_len_mean = np.mean(prediction_lens)
         
         return {
-            "accuracy": accuracy_score(y_true, y_pred) * 100,
-            "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0) * 100,
+            'f1_macro': round(f1_macro * 100, 4), 
+            'exact_match': round(exact_match * 100, 2),
+            'gen_len': round(gen_len_mean, 4)
         }
     
-    # Create trainer
+    # Create trainer with callbacks
+    callbacks = []
+    callback_instance = None
+    if is_multi_dataset and individual_val_tokenized:
+        # Add callback to evaluate on individual datasets after each epoch
+        callback_instance = PerDatasetEvalCallback(individual_val_tokenized, tokenizer, norm)
+        callbacks.append(callback_instance)
+        print("\n✅ Added per-dataset evaluation callback - will evaluate on each dataset after every epoch")
+    
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
@@ -529,7 +621,12 @@ def main():
         eval_dataset=val_tokenized,
         tokenizer=tokenizer,
         compute_metrics=compute_metrics,
+        callbacks=callbacks,
     )
+    
+    # Set trainer reference in callback after trainer is created
+    if callback_instance is not None:
+        callback_instance.trainer = trainer
     
     # Train
     print("\n🚀 Starting training...")
@@ -563,20 +660,34 @@ def main():
     print(f"  Test F1 Macro: {test_results.get('eval_f1_macro', 'N/A'):.2f}")
     print(f"  Test Loss    : {test_results.get('eval_loss', 'N/A'):.4f}")
     
-    # Generate predictions for classification report
+    # Generate predictions for classification report (following VIHOS_T5.py approach)
     print("\n📋 Generating detailed predictions for classification report...")
     predictions = trainer.predict(test_tokenized)
     preds = predictions.predictions
     labels = predictions.label_ids
     
-    # Decode predictions and labels
+    # Safety: handle tuple/3D array (following VIHOS_T5.py)
+    if isinstance(preds, tuple):
+        preds = preds[0]
+    
+    preds = np.array(preds)
+    if preds.ndim == 3:
+        preds = preds.argmax(axis=-1)
+    
+    # Clip to valid vocab range
+    preds = np.clip(preds, 0, len(tokenizer) - 1).astype(np.int64)
+    
+    # Decode predictions
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    
+    # Decode labels
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    labels = np.clip(labels, 0, len(tokenizer) - 1).astype(np.int64)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
     
-    # Normalize labels
-    y_pred = [norm(x) for x in decoded_preds]
-    y_true = [norm(x) for x in decoded_labels]
+    # Normalize labels (strip and uppercase for comparison)
+    y_pred = [pred.strip().upper() for pred in decoded_preds]
+    y_true = [label.strip().upper() for label in decoded_labels]
     
     # Get unique labels
     unique_labels = sorted(set(y_true + y_pred))
@@ -647,34 +758,33 @@ def main():
             # Evaluate
             test_results_single = trainer.evaluate(test_tokenized_single)
             
-            # Generate predictions
+            # Generate predictions (following VIHOS_T5.py approach)
             predictions_single = trainer.predict(test_tokenized_single)
             preds_single = predictions_single.predictions
             labels_single = predictions_single.label_ids
             
-            # Decode predictions and labels safely
-            vocab_size = len(tokenizer)
-            preds_single = np.clip(preds_single, 0, vocab_size - 1)
+            # Safety: handle tuple/3D array (following VIHOS_T5.py)
+            if isinstance(preds_single, tuple):
+                preds_single = preds_single[0]
+            
+            preds_single = np.array(preds_single)
+            if preds_single.ndim == 3:
+                preds_single = preds_single.argmax(axis=-1)
+            
+            # Clip to valid vocab range
+            preds_single = np.clip(preds_single, 0, len(tokenizer) - 1).astype(np.int64)
+            
+            # Decode predictions
+            decoded_preds_single = tokenizer.batch_decode(preds_single, skip_special_tokens=True)
+            
+            # Decode labels
             labels_single = np.where(labels_single != -100, labels_single, tokenizer.pad_token_id)
-            labels_single = np.clip(labels_single, 0, vocab_size - 1)
+            labels_single = np.clip(labels_single, 0, len(tokenizer) - 1).astype(np.int64)
+            decoded_labels_single = tokenizer.batch_decode(labels_single, skip_special_tokens=True)
             
-            try:
-                decoded_preds_single = tokenizer.batch_decode(preds_single, skip_special_tokens=True)
-                decoded_labels_single = tokenizer.batch_decode(labels_single, skip_special_tokens=True)
-            except:
-                decoded_preds_single = []
-                decoded_labels_single = []
-                for p, l in zip(preds_single, labels_single):
-                    try:
-                        decoded_preds_single.append(tokenizer.decode(p, skip_special_tokens=True))
-                        decoded_labels_single.append(tokenizer.decode(l, skip_special_tokens=True))
-                    except:
-                        decoded_preds_single.append("")
-                        decoded_labels_single.append("")
-            
-            # Normalize labels
-            y_pred_single = [norm(x) for x in decoded_preds_single]
-            y_true_single = [norm(x) for x in decoded_labels_single]
+            # Normalize labels (strip and uppercase for comparison)
+            y_pred_single = [pred.strip().upper() for pred in decoded_preds_single]
+            y_true_single = [label.strip().upper() for label in decoded_labels_single]
             
             # Calculate metrics
             acc_single = accuracy_score(y_true_single, y_pred_single) * 100

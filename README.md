@@ -114,7 +114,7 @@ python src/train_t5.py --dataset Minhbao5xx2/VOZ-HSD_2M --model_name VietAI/vit5
 
 ## Evaluation
 ```bash
-python src/evaluate.py --model_path models/ViHSD_phobert --dataset ViHSD --output_dir results/
+python src/evaluate.py --model_path Minhbao5xx2/vit5_multi_dataset --dataset ViCTSD --output_dir results/
 ```
 
 ## Output Files (CSV Tracking)
