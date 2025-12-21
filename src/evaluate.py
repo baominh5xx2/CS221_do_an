@@ -176,10 +176,36 @@ def main():
             # Check if ViHateT5 (Flax-based) - need from_flax=True
             if "ViHateT5" in args.model_name:
                 print(f"  Loading from Flax weights (ViHateT5)...")
-                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, from_flax=True)
+                # Load on CPU first to avoid meta tensor issues
+                model = AutoModelForSeq2SeqLM.from_pretrained(
+                    args.model_name, 
+                    from_flax=True,
+                    torch_dtype=torch.float32
+                )
+                # Initialize missing weights (lm_head, embed_tokens) from tokenizer
+                # These are usually shared with tokenizer embeddings
+                vocab_size = len(tokenizer)
+                if hasattr(model, 'lm_head') and model.lm_head.weight.device.type == "meta":
+                    model.lm_head.weight = torch.nn.Parameter(
+                        torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                    )
+                if hasattr(model, 'encoder') and hasattr(model.encoder, 'embed_tokens'):
+                    if model.encoder.embed_tokens.weight.device.type == "meta":
+                        model.encoder.embed_tokens.weight = torch.nn.Parameter(
+                            torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                        )
+                if hasattr(model, 'decoder') and hasattr(model.decoder, 'embed_tokens'):
+                    if model.decoder.embed_tokens.weight.device.type == "meta":
+                        model.decoder.embed_tokens.weight = torch.nn.Parameter(
+                            torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                        )
+                # Move to CPU first to ensure all tensors are materialized
+                model = model.to("cpu")
             else:
                 model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
-            model.to(device)
+            
+            # Now move to target device
+            model = model.to(device)
             model.eval()
         else:
             from model import build_model
@@ -200,8 +226,32 @@ def main():
                 model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path)
             except:
                 print(f"  Trying to load from Flax weights...")
-                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path, from_flax=True)
-            model.to(device)
+                model = AutoModelForSeq2SeqLM.from_pretrained(
+                    args.model_path, 
+                    from_flax=True,
+                    torch_dtype=torch.float32
+                )
+                # Initialize missing weights from tokenizer
+                vocab_size = len(tokenizer)
+                if hasattr(model, 'lm_head') and model.lm_head.weight.device.type == "meta":
+                    model.lm_head.weight = torch.nn.Parameter(
+                        torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                    )
+                if hasattr(model, 'encoder') and hasattr(model.encoder, 'embed_tokens'):
+                    if model.encoder.embed_tokens.weight.device.type == "meta":
+                        model.encoder.embed_tokens.weight = torch.nn.Parameter(
+                            torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                        )
+                if hasattr(model, 'decoder') and hasattr(model.decoder, 'embed_tokens'):
+                    if model.decoder.embed_tokens.weight.device.type == "meta":
+                        model.decoder.embed_tokens.weight = torch.nn.Parameter(
+                            torch.randn(vocab_size, model.config.d_model, dtype=torch.float32)
+                        )
+                # Move to CPU first
+                model = model.to("cpu")
+            
+            # Now move to target device
+            model = model.to(device)
             model.eval()
         else:
             model, tokenizer = load_trained_model(args.model_path, device=str(device))
