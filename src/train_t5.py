@@ -242,6 +242,10 @@ def main():
     print(f"   Initial VRAM used: {initial_vram:.2f} GB")
     print(f"   Initial RAM used: {initial_ram:.2f} GB")
     
+    # Parse dataset list (support multi-dataset training)
+    dataset_list = [d.strip() for d in args.dataset.split(",")]
+    is_multi_dataset = len(dataset_list) > 1
+    
     # Print config
     print("\n" + "=" * 80)
     print("T5 Training Configuration (Seq2SeqTrainer):")
@@ -259,10 +263,6 @@ def main():
     print(f"  Scheduler      : {args.lr_scheduler_type}")
     print(f"  Warmup Ratio   : {args.warmup_ratio}")
     print(f"  Optimizer      : {args.optim}")
-    
-    # Parse dataset list (support multi-dataset training)
-    dataset_list = [d.strip() for d in args.dataset.split(",")]
-    is_multi_dataset = len(dataset_list) > 1
     
     if is_multi_dataset:
         print(f"\n📚 Loading {len(dataset_list)} datasets for multi-task training...")
