@@ -17,6 +17,7 @@ from datasets import Dataset
 import nltk
 import torch
 import psutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Download punkt tokenizer for sentence tokenization
 try:
@@ -44,21 +45,24 @@ def parse_args():
     
     parser.add_argument("--dataset", type=str, required=True,
                        help="Dataset name (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M) or any HuggingFace dataset (e.g., 'username/dataset_name')")
+    parser.add_argument("--voz_hsd_file", type=str, default="balanced",
+                       choices=["full", "balanced", "hate_only"],
+                       help="For Minhbao5xx2/re_VOZ-HSD dataset: choose which CSV file to use. Options: 'full' (data.csv, 1.91GB), 'balanced' (data_balance.csv, 186MB), 'hate_only' (data_full_date.csv, 92.3MB). Default: 'balanced'")
     parser.add_argument("--model_name", type=str, default="VietAI/vit5-base",
                        help="T5 model (google/t5-base, VietAI/vit5-base, VietAI/vit5-large)")
     parser.add_argument("--max_length", type=int, default=256,
                        help="Maximum sequence length")
-    parser.add_argument("--batch_size", type=int, default=8,
+    parser.add_argument("--batch_size", type=int, default=128,
                        help="Training batch size")
-    parser.add_argument("--epochs", type=int, default=5,
+    parser.add_argument("--epochs", type=int, default=10,
                        help="Number of training epochs")
-    parser.add_argument("--learning_rate", type=float, default=3e-4,
+    parser.add_argument("--learning_rate", type=float, default=5e-3,
                        help="Learning rate")
-    parser.add_argument("--warmup_ratio", type=float, default=0.0,
+    parser.add_argument("--warmup_ratio", type=float, default=0.05,
                        help="Warmup ratio (0.0 = no warmup)")
-    parser.add_argument("--lr_scheduler_type", type=str, default="constant",
+    parser.add_argument("--lr_scheduler_type", type=str, default="linear",
                        help="Learning rate scheduler type (constant = no scheduling, keeps LR fixed)")
-    parser.add_argument("--optim", type=str, default="adafactor",
+    parser.add_argument("--optim", type=str, default="adamw_torch",
                        help="Optimizer (adafactor, adamw_torch, etc.)")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                        help="Number of updates steps to accumulate before performing a backward/update pass")
@@ -255,9 +259,46 @@ def main():
     print(f"  Warmup Ratio   : {args.warmup_ratio}")
     print(f"  Optimizer      : {args.optim}")
     
-    # Load dataset first to check if dev_ratio is actually used
-    print(f"\n📚 Loading {args.dataset} dataset...")
-    train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset, dev_ratio=args.dev_ratio)
+    # Load dataset and tokenizer in parallel for faster startup
+    print(f"\n📚 Loading dataset and tokenizer in parallel...")
+    
+    # Pass voz_hsd_file parameter if dataset is Minhbao5xx2/re_VOZ-HSD
+    split_name = None
+    if args.dataset == "Minhbao5xx2/re_VOZ-HSD":
+        # Map voz_hsd_file to split_name for data_loader
+        if args.voz_hsd_file == "full":
+            split_name = "full"
+        elif args.voz_hsd_file == "balanced":
+            split_name = "balanced"
+        elif args.voz_hsd_file == "hate_only":
+            split_name = "hate_only"
+        print(f"  Using VOZ-HSD file: {args.voz_hsd_file}")
+    
+    # Determine max_samples based on dataset type (BEFORE loading)
+    max_samples = None
+    if args.dataset == "Minhbao5xx2/re_VOZ-HSD":
+        if args.voz_hsd_file == "hate_only":
+            max_samples = 100000  # 100k for hate_only
+        elif args.voz_hsd_file == "balanced":
+            max_samples = 200000  # 200k for balanced
+        # full: no limit (max_samples = None)
+    
+    # Load dataset and tokenizer in parallel
+    def load_dataset_task():
+        return load_dataset_by_name(args.dataset, split_name=split_name, dev_ratio=args.dev_ratio, max_samples=max_samples)
+    
+    def load_tokenizer_task():
+        return AutoTokenizer.from_pretrained(args.model_name)
+    
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        dataset_future = executor.submit(load_dataset_task)
+        tokenizer_future = executor.submit(load_tokenizer_task)
+        
+        # Wait for both to complete
+        train_df, val_df, test_df, metadata = dataset_future.result()
+        tokenizer = tokenizer_future.result()
+    
+    print(f"  ✅ Dataset and tokenizer loaded successfully")
     
     # Check if dev_ratio was used (for datasets without predefined splits)
     # dev_ratio is used for: VOZ-HSD_2M and custom HuggingFace datasets without splits
@@ -277,6 +318,9 @@ def main():
     print(f"  Val samples  : {len(val_df)}")
     print(f"  Test samples : {len(test_df)}")
     
+    # Note: Samples are already limited BEFORE splitting in load_voz_hsd_2m
+    # So train/val/test are already the correct size
+    
     # Map to source-target format
     print("\n🔄 Mapping datasets to source-target format...")
     train_df = map_dataset(train_df, args.dataset, metadata)
@@ -293,9 +337,8 @@ def main():
     val_data = Dataset.from_pandas(val_df.reset_index(drop=True))
     test_data = Dataset.from_pandas(test_df.reset_index(drop=True))
     
-    # Load tokenizer and model
-    print(f"\n🤖 Loading {args.model_name}...")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    # Load model (tokenizer already loaded in parallel above)
+    print(f"\n🤖 Loading model {args.model_name}...")
     
     # Check if model is Flax-based (like ViHateT5)
     if "ViHateT5" in args.model_name:
@@ -328,22 +371,35 @@ def main():
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
     
-    # Tokenize datasets
-    print("\n🔢 Tokenizing datasets...")
+    # Tokenize datasets (with parallel processing for speed)
+    print("\n🔢 Tokenizing datasets (parallel processing)...")
+    import multiprocessing
+    num_proc = min(multiprocessing.cpu_count(), 8)  # Use up to 8 processes
+    print(f"  Using {num_proc} processes for tokenization")
+    
     train_tokenized = train_data.map(
         preprocess_function, 
-        batched=True, 
-        remove_columns=train_data.column_names
+        batched=True,
+        batch_size=10000,  # Larger batch size for better throughput
+        num_proc=num_proc,  # Parallel processing
+        remove_columns=train_data.column_names,
+        desc="Tokenizing train set"
     )
     val_tokenized = val_data.map(
         preprocess_function, 
-        batched=True, 
-        remove_columns=val_data.column_names
+        batched=True,
+        batch_size=10000,
+        num_proc=num_proc,
+        remove_columns=val_data.column_names,
+        desc="Tokenizing val set"
     )
     test_tokenized = test_data.map(
         preprocess_function, 
-        batched=True, 
-        remove_columns=test_data.column_names
+        batched=True,
+        batch_size=10000,
+        num_proc=num_proc,
+        remove_columns=test_data.column_names,
+        desc="Tokenizing test set"
     )
     print(f"  Keys of tokenized dataset: {list(train_tokenized.features)}")
     
