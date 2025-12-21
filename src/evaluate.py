@@ -173,8 +173,12 @@ def main():
         if is_t5:
             print(f"  Detected T5 model, loading AutoModelForSeq2SeqLM...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-            # Load model - AutoModelForSeq2SeqLM handles Flax weights automatically
-            model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+            # Check if ViHateT5 (Flax-based) - need from_flax=True
+            if "ViHateT5" in args.model_name:
+                print(f"  Loading from Flax weights (ViHateT5)...")
+                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, from_flax=True)
+            else:
+                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
             model.to(device)
             model.eval()
         else:
@@ -191,8 +195,12 @@ def main():
         if is_t5:
             print(f"  Detected T5 model, loading AutoModelForSeq2SeqLM...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-            # Load model - AutoModelForSeq2SeqLM handles Flax weights automatically
-            model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path)
+            # Try loading normally first, if fails try from_flax
+            try:
+                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path)
+            except:
+                print(f"  Trying to load from Flax weights...")
+                model = AutoModelForSeq2SeqLM.from_pretrained(args.model_path, from_flax=True)
             model.to(device)
             model.eval()
         else:
