@@ -43,12 +43,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train T5/ViT5 for hate speech detection")
     
     parser.add_argument("--dataset", type=str, required=True,
-                       help="Dataset name (ViHSD, ViCTSD, ViHOS, Minhbao5xx2/VOZ-HSD_2M) or any HuggingFace dataset (e.g., 'username/dataset_name')")
+                       help="Dataset name(s). For single dataset: ViHSD, ViCTSD, ViHOS, etc. "
+                            "For multi-dataset training: comma-separated list like 'ViHSD,ViCTSD,ViHOS'")
     parser.add_argument("--model_name", type=str, default="VietAI/vit5-base",
-                       help="T5 model (google/t5-base, VietAI/vit5-base, VietAI/vit5-large)")
+                       help="T5 model (google/t5-base, VietAI/vit5-base, VietAI/vit5-large, tarudesu/ViHateT5-base)")
     parser.add_argument("--max_length", type=int, default=256,
                        help="Maximum sequence length")
-    parser.add_argument("--batch_size", type=int, default=8,
+    parser.add_argument("--batch_size", type=int, default=32,
                        help="Training batch size")
     parser.add_argument("--epochs", type=int, default=5,
                        help="Number of training epochs")
@@ -245,7 +246,11 @@ def main():
     print("\n" + "=" * 80)
     print("T5 Training Configuration (Seq2SeqTrainer):")
     print("=" * 80)
-    print(f"  Dataset        : {args.dataset}")
+    print(f"  Dataset(s)     : {args.dataset}")
+    if is_multi_dataset:
+        print(f"  Mode           : Multi-task training ({len(dataset_list)} datasets)")
+    else:
+        print(f"  Mode           : Single dataset training")
     print(f"  Model          : {args.model_name}")
     print(f"  Max Length     : {args.max_length}")
     print(f"  Batch Size     : {args.batch_size}")
@@ -255,33 +260,83 @@ def main():
     print(f"  Warmup Ratio   : {args.warmup_ratio}")
     print(f"  Optimizer      : {args.optim}")
     
-    # Load dataset first to check if dev_ratio is actually used
-    print(f"\n📚 Loading {args.dataset} dataset...")
-    train_df, val_df, test_df, metadata = load_dataset_by_name(args.dataset, dev_ratio=args.dev_ratio)
+    # Parse dataset list (support multi-dataset training)
+    dataset_list = [d.strip() for d in args.dataset.split(",")]
+    is_multi_dataset = len(dataset_list) > 1
     
-    # Check if dev_ratio was used (for datasets without predefined splits)
-    # dev_ratio is used for: VOZ-HSD_2M and custom HuggingFace datasets without splits
-    uses_dev_ratio = (
-        "VOZ-HSD_2M" in args.dataset or 
-        args.dataset == "Minhbao5xx2/re_VOZ-HSD" or
-        (args.dataset.count("/") == 1 and args.dataset not in ["ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed"])
-    )
-    
-    if uses_dev_ratio:
-        print(f"  Dev Ratio      : {args.dev_ratio} (used for splitting)")
+    if is_multi_dataset:
+        print(f"\n📚 Loading {len(dataset_list)} datasets for multi-task training...")
+        print(f"  Datasets: {', '.join(dataset_list)}")
+        
+        train_dfs = []
+        val_dfs = []
+        test_dfs = []
+        
+        for dataset_name in dataset_list:
+            print(f"\n  Loading {dataset_name}...")
+            train_df, val_df, test_df, metadata = load_dataset_by_name(dataset_name, dev_ratio=args.dev_ratio)
+            
+            # Map to source-target format
+            train_df = map_dataset(train_df, dataset_name, metadata)
+            val_df = map_dataset(val_df, dataset_name, metadata)
+            test_df = map_dataset(test_df, dataset_name, metadata)
+            
+            # Drop NA
+            train_df = train_df.dropna()
+            val_df = val_df.dropna()
+            test_df = test_df.dropna()
+            
+            print(f"    Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
+            
+            train_dfs.append(train_df)
+            val_dfs.append(val_df)
+            test_dfs.append(test_df)
+        
+        # Concatenate all datasets
+        print(f"\n🔄 Concatenating datasets...")
+        train_df = pd.concat(train_dfs, axis=0, ignore_index=True)
+        val_df = pd.concat(val_dfs, axis=0, ignore_index=True)
+        test_df = pd.concat(test_dfs, axis=0, ignore_index=True)
+        
+        print(f"  Final Train samples: {len(train_df)}")
+        print(f"  Final Val samples  : {len(val_df)}")
+        print(f"  Final Test samples : {len(test_df)}")
+        
+        # Create combined metadata
+        metadata = {
+            "name": "+".join(dataset_list),
+            "text_col": "source",  # Already mapped
+            "label_col": "target",  # Already mapped
+            "num_labels": "multi-task"
+        }
     else:
-        print(f"  Dev Ratio      : {args.dev_ratio} (not used - dataset has predefined splits)")
-    print("=" * 80)
-    
-    print(f"  Train samples: {len(train_df)}")
-    print(f"  Val samples  : {len(val_df)}")
-    print(f"  Test samples : {len(test_df)}")
-    
-    # Map to source-target format
-    print("\n🔄 Mapping datasets to source-target format...")
-    train_df = map_dataset(train_df, args.dataset, metadata)
-    val_df = map_dataset(val_df, args.dataset, metadata)
-    test_df = map_dataset(test_df, args.dataset, metadata)
+        # Single dataset training (original behavior)
+        dataset_name = dataset_list[0]
+        print(f"\n📚 Loading {dataset_name} dataset...")
+        train_df, val_df, test_df, metadata = load_dataset_by_name(dataset_name, dev_ratio=args.dev_ratio)
+        
+        # Check if dev_ratio was used (for datasets without predefined splits)
+        uses_dev_ratio = (
+            "VOZ-HSD_2M" in dataset_name or 
+            dataset_name == "Minhbao5xx2/re_VOZ-HSD" or
+            (dataset_name.count("/") == 1 and dataset_name not in ["ViHSD", "ViCTSD", "ViHOS", "ViHSD_processed"])
+        )
+        
+        if uses_dev_ratio:
+            print(f"  Dev Ratio      : {args.dev_ratio} (used for splitting)")
+        else:
+            print(f"  Dev Ratio      : {args.dev_ratio} (not used - dataset has predefined splits)")
+        print("=" * 80)
+        
+        print(f"  Train samples: {len(train_df)}")
+        print(f"  Val samples  : {len(val_df)}")
+        print(f"  Test samples : {len(test_df)}")
+        
+        # Map to source-target format
+        print("\n🔄 Mapping datasets to source-target format...")
+        train_df = map_dataset(train_df, dataset_name, metadata)
+        val_df = map_dataset(val_df, dataset_name, metadata)
+        test_df = map_dataset(test_df, dataset_name, metadata)
     
     # Drop NA
     train_df = train_df.dropna()
@@ -299,6 +354,7 @@ def main():
     
     # Check if model is Flax-based (like ViHateT5)
     if "ViHateT5" in args.model_name:
+        print("  Loading from Flax weights (ViHateT5)...")
         model = T5ForConditionalGeneration.from_pretrained(args.model_name, from_flax=True)
     else:
         model = T5ForConditionalGeneration.from_pretrained(args.model_name)
@@ -352,7 +408,10 @@ def main():
         output_dir = args.output_dir
     else:
         model_short = args.model_name.split("/")[-1]
-        dataset_short = args.dataset.split("/")[-1]
+        if is_multi_dataset:
+            dataset_short = "+".join([d.split("/")[-1] for d in dataset_list])
+        else:
+            dataset_short = args.dataset.split("/")[-1]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = f"models/{dataset_short}_{model_short}_{timestamp}"
     
@@ -530,6 +589,8 @@ def main():
     print("  Saving training configuration...")
     config_dict = {
         "dataset": args.dataset,
+        "is_multi_dataset": is_multi_dataset,
+        "num_datasets": len(dataset_list) if is_multi_dataset else 1,
         "model_name": args.model_name,
         "max_length": args.max_length,
         "batch_size": args.batch_size,
