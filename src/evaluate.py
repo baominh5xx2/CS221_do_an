@@ -180,17 +180,21 @@ def main():
             # Check if ViHateT5 (Flax-based)
             if "ViHateT5" in args.model_name:
                 print(f"  Loading from Flax weights (ViHateT5)...")
-                # Load with low_cpu_mem_usage=False to ensure all weights are loaded properly
+                # Load on CPU first to avoid meta tensor issues
                 model = T5ForConditionalGeneration.from_pretrained(
                     args.model_name, 
                     from_flax=True,
-                    low_cpu_mem_usage=False
+                    low_cpu_mem_usage=False,
+                    torch_dtype=torch.float32
                 )
+                # Ensure model is on CPU (not meta) before moving to target device
+                model = model.to("cpu")
             else:
                 model = T5ForConditionalGeneration.from_pretrained(args.model_name)
             
-            # Move to device after loading
-            model = model.to(device_str)
+            # Move to target device after ensuring model is fully loaded
+            if device_str != "cpu":
+                model = model.to(device_str)
             model.eval()
         else:
             from model import build_model
@@ -218,10 +222,15 @@ def main():
                 model = T5ForConditionalGeneration.from_pretrained(
                     args.model_path, 
                     from_flax=True,
-                    low_cpu_mem_usage=False
+                    low_cpu_mem_usage=False,
+                    torch_dtype=torch.float32
                 )
-            # Move to device after loading
-            model = model.to(device_str)
+                # Ensure model is on CPU (not meta) before moving to target device
+                model = model.to("cpu")
+            
+            # Move to target device after ensuring model is fully loaded
+            if device_str != "cpu":
+                model = model.to(device_str)
             model.eval()
         else:
             model, tokenizer = load_trained_model(args.model_path)
