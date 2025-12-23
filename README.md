@@ -1,352 +1,156 @@
-# Vietnamese Hate Speech Detection
+# 🇻🇳 Vietnamese Hate Speech Detection Pipeline
 
-A comprehensive pipeline for Vietnamese hate speech and toxic speech detection using PhoBERT/ViSoBERT and T5/ViT5 models. The project supports pretraining, fine-tuning, and evaluation with multiple datasets.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Transformers](https://img.shields.io/badge/library-transformers-orange.svg)](https://github.com/huggingface/transformers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+Một hệ thống toàn diện cho bài toán phát hiện ngôn ngữ thù ghét (Hate Speech) và bình luận độc hại (Toxic Speech) tiếng Việt, sử dụng các kiến trúc SOTA như **PhoBERT/ViSoBERT** và **T5/ViT5**.
 
-- **Pretraining**: T5 span corruption pretraining on Vietnamese text
-- **Fine-tuning**: T5/ViT5 sequence-to-sequence fine-tuning for classification
-- **Classification**: BERT-based (PhoBERT/ViSoBERT) classification models
-- **Multi-dataset support**: ViHSD, ViCTSD, ViHOS, VOZ-HSD, and custom HuggingFace datasets
-- **Comprehensive evaluation**: Automatic test set evaluation with detailed metrics
+---
 
-## Datasets
+## 📌 Tổng quan dự án
 
-### Predefined Datasets
+Dự án cung cấp 3 pipeline chính cho phép bạn đi từ dữ liệu thô đến mô hình hoàn chỉnh:
+1.  **Pre-training**: Tiếp tục huấn luyện T5 với cơ chế *Span Corruption* trên dữ liệu tiếng Việt.
+2.  **T5 Fine-tuning**: Huấn luyện Seq2Seq cho bài toán phân loại đa tập dữ liệu.
+3.  **BERT Classification**: Huấn luyện các mô hình Encoder-only (PhoBERT, ViSoBERT) truyền thống.
 
-- **ViHSD** (multi-class): 3-class hate speech detection
-  - Classes: CLEAN, OFFENSIVE, HATE
-  - Source: https://huggingface.co/datasets/visolex/ViHSD
+---
 
-- **ViHSD_processed** (binary): Processed binary version
-  - Source: https://huggingface.co/datasets/trinhtrantran122/ViHSD_processed
+## 🛠 Cài đặt & Chuẩn bị
 
-- **ViCTSD** (binary): Toxic speech detection
-  - Classes: NONE, TOXIC
-  - Source: https://huggingface.co/datasets/tarudesu/ViCTSD
-
-- **ViHOS** (hate spans): Hate span detection task
-  - Source: https://github.com/phusroyal/ViHOS
-
-- **VOZ-HSD** (binary): Large-scale hate speech dataset
-  - Splits: `balanced`, `hate_only`, `full`
-  - Source: https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD
-
-### Custom Datasets
-
-You can load any dataset from HuggingFace Hub by passing the dataset identifier (e.g., `username/dataset_name`). The code will auto-detect text and label columns.
-
-## Installation
-
-### 1. Create Virtual Environment
-
+### 1. Khởi tạo môi trường
 ```bash
+# Khởi tạo venv
 python -m venv .venv
-source .venv/bin/activate   # Linux/Mac
+source .venv/bin/activate  # Linux/Mac
 # Windows: .venv\Scripts\activate
-```
 
-### 2. Install Dependencies
-
-```bash
+# Cài đặt thư viện
 pip install -r requirements.txt
 ```
 
-### 3. HuggingFace Authentication
-
-For private models or pushing to Hub:
-
+### 2. Đăng nhập HuggingFace (Cần thiết để tải/đẩy mô hình)
 ```bash
-# Linux/Mac
 huggingface-cli login
-# or
-export HF_TOKEN=your_token_here
-
-# Windows (Git Bash)
-huggingface-cli login
-# or
-setx HF_TOKEN "hf_xxx"
-
-# Optional: Use .env file (don't commit)
-echo "HF_TOKEN=your_token_here" > .env
+# Hoặc thiết lập biến môi trường HF_TOKEN
 ```
 
-## Quick Start
+---
 
-### T5 Pretraining (Span Corruption)
+## 📊 Dữ liệu (Datasets)
 
-Pretrain T5/ViT5 models on Vietnamese text using span corruption objective:
+Hệ thống hỗ trợ nạp dữ liệu tự động từ HuggingFace hoặc file local:
+
+| Tên Dataset | Loại | Mô tả |
+| :--- | :--- | :--- |
+| **ViHSD** | Multi-class | 3 nhãn: CLEAN, OFFENSIVE, HATE |
+| **ViCTSD** | Binary | Phát hiện độc hại (Toxic/None) |
+| **ViHOS** | Hate Spans | Phát hiện vùng thù ghét |
+| **VOZ-HSD** | Binary | Dữ liệu lớn (balanced, hate_only, full) |
+| **Custom HF** | Tùy chọn | Bất kỳ dataset nào trên HuggingFace (tự nhận diện cột) |
+
+---
+
+## 🚀 Hướng dẫn sử dụng (Scripts)
+
+Chúng tôi cung cấp các script bash trong thư mục `scripts/` để chạy nhanh với các tham số tối ưu.
+
+### 1. Pre-training T5 (Span Corruption)
+Sử dụng khi bạn muốn mô hình T5 hiểu sâu hơn về ngữ cảnh dữ liệu đặc thù của mình.
 
 ```bash
-# Basic usage with default settings
-bash scripts/run_pretrain_t5.sh
-
-# Custom dataset and parameters
 bash scripts/run_pretrain_t5.sh \
-    --dataset_name "Minhbao5xx2/re_VOZ-HSD" \
-    --split_name "hate_only" \
-    --max_samples 50000 \
-    --output_dir "vihate_t5_pretrain"
-```
-
-**Parameters:**
-- `--dataset_name`: Dataset identifier (e.g., `Minhbao5xx2/re_VOZ-HSD`) or `None` for local files
-- `--split_name`: For VOZ-HSD: `balanced`, `hate_only`, or `full` (default: `balanced`)
-- `--max_samples`: Maximum number of samples to use (optional)
-- `--train_file`: Path to local training text file (one example per line)
-- `--valid_file`: Path to local validation text file (one example per line)
-- `--output_dir`: Output directory (default: `vihate_t5_pretrain`)
-
-**Note:** The pretraining script is optimized for H200 GPUs (141GB HBM3) with large batch sizes. Adjust `per_device_train_batch_size` in `src/pre_train_t5.py` if using smaller GPUs.
-
-### T5 Fine-tuning
-
-Fine-tune T5/ViT5 models for sequence-to-sequence classification:
-
-```bash
-# Basic usage
-bash scripts/run_train_t5.sh
-
-# Custom configuration
-bash scripts/run_train_t5.sh \
-    --save_model_name "ViHateT5-custom" \
-    --pre_trained_ckpt "VietAI/vit5-base" \
-    --output_dir "outputs/t5_finetuned" \
-    --batch_size 32 \
-    --num_epochs 4 \
-    --learning_rate 2e-4 \
-    --gpu "0"
-```
-
-**Parameters:**
-- `--save_model_name`: Name for the fine-tuned model (required for Hub push)
-- `--pre_trained_ckpt`: Pre-trained checkpoint (default: `VietAI/vit5-base`)
-- `--output_dir`: Output directory (default: `outputs/t5_finetuned`)
-- `--batch_size`: Batch size (default: 32)
-- `--num_epochs`: Number of epochs (default: 4)
-- `--learning_rate`: Learning rate (default: 2e-4)
-- `--gpu`: GPU device ID (default: "0")
-
-**Note:** The script trains on ViHSD, ViCTSD, and ViHOS datasets combined, then evaluates on each test set separately.
-
-### BERT-based Classification
-
-Train PhoBERT/ViSoBERT models for classification:
-
-```bash
-# Basic usage
-bash scripts/run_train_bert.sh --dataset ViHSD
-
-# Full configuration
-bash scripts/run_train_bert.sh \
-    --dataset ViHSD \
-    --model_name "vinai/phobert-base" \
-    --max_length 256 \
-    --batch_size 16 \
-    --epochs 10 \
-    --learning_rate 2e-5 \
-    --weight_decay 0.01 \
-    --warmup_ratio 0.1 \
-    --patience 3 \
-    --seed 42 \
-    --output_dir "outputs/bert_custom"
-```
-
-**Parameters:**
-- `--dataset` (required): Dataset name (ViHSD, ViCTSD, ViHOS, ViHSD_processed, Minhbao5xx2/VOZ-HSD_2M, or HuggingFace dataset)
-- `--model_name`: Model identifier (default: `vinai/phobert-base`)
-  - Options: `vinai/phobert-base`, `vinai/phobert-large`, `uitnlp/visobert`, `bert-base-multilingual-cased`
-- `--max_length`: Maximum sequence length (default: 256)
-- `--batch_size`: Batch size (default: 16)
-- `--epochs`: Number of epochs (default: 10)
-- `--learning_rate`: Learning rate (default: 2e-5)
-- `--weight_decay`: Weight decay (default: 0.01)
-- `--warmup_ratio`: Warmup ratio (default: 0.1)
-- `--patience`: Early stopping patience (default: 3)
-- `--seed`: Random seed (default: 42)
-- `--output_dir`: Output directory (auto-generated if not specified)
-
-## Direct Python Usage
-
-### T5 Pretraining
-
-```bash
-python src/pre_train_t5.py \
     --dataset_name "Minhbao5xx2/re_VOZ-HSD" \
     --split_name "hate_only" \
     --max_samples 50000
 ```
+*Lưu ý: Script được tối ưu mặc định cho GPU H200. Nếu dùng GPU nhỏ hơn, hãy điều chỉnh `batch_size` trong code.*
 
-### T5 Fine-tuning
+### 2. Fine-tuning T5 (Phân loại Seq2Seq)
+Huấn luyện mô hình sinh ra nhãn văn bản (ví dụ: "HATE", "CLEAN").
 
 ```bash
-python src/train_t5.py \
-    --save_model_name "ViHateT5-finetuned" \
+bash scripts/run_train_t5.sh \
     --pre_trained_ckpt "VietAI/vit5-base" \
-    --output_dir "outputs/t5_finetuned" \
     --batch_size 32 \
     --num_epochs 4 \
-    --learning_rate 2e-4 \
     --gpu "0"
 ```
 
-### BERT Classification
+### 3. Huấn luyện BERT/PhoBERT (Classification)
+Cách tiếp cận truyền thống sử dụng Classification Head.
 
 ```bash
-python src/train_bert.py \
-    --dataset ViHSD \
+bash scripts/run_train_bert.sh \
+    --dataset "ViHSD" \
     --model_name "vinai/phobert-base" \
-    --max_length 256 \
-    --batch_size 16 \
     --epochs 10 \
-    --learning_rate 2e-5 \
-    --weight_decay 0.01 \
-    --warmup_ratio 0.1 \
-    --patience 3 \
-    --seed 42 \
-    --output_dir "outputs/bert_custom"
+    --patience 3
 ```
 
-## Evaluation
+---
 
-Evaluate a trained model on a specific dataset:
+## ⚙️ Chi tiết tham số (CLI Arguments)
 
-```bash
-python src/evaluate.py \
-    --model_path "outputs/bert_custom" \
-    --dataset ViHSD \
-    --output_dir "results/"
-```
+### Các tham số chung cho các Script:
+| Tham số | Mô tả | Mặc định |
+| :--- | :--- | :--- |
+| `--dataset` | Tên dataset hoặc đường dẫn HF | `ViHSD` |
+| `--model_name` | Model checkpoint từ HuggingFace | `vinai/phobert-base` |
+| `--batch_size` | Kích thước batch huấn luyện | `16` |
+| `--epochs` | Số lượng epoch huấn luyện | `10` |
+| `--learning_rate`| Tốc độ học | `2e-5` |
+| `--output_dir` | Thư mục lưu kết quả | Tự động sinh |
 
-## Output Files
+---
 
-### T5 Pretraining (`pre_train_t5.py`)
+## 📈 Kết quả & Output
 
-Output directory: `vihate_t5_pretrain/final/`
-- Model weights: `pytorch_model.bin` or `model.safetensors`
-- Model config: `config.json`
-- Tokenizer files: `tokenizer.json`, `tokenizer_config.json`, `vocab.txt`
+Sau khi chạy training, kết quả sẽ được lưu vào thư mục `outputs/` hoặc `vihate_t5_pretrain/`:
 
-### T5 Fine-tuning (`train_t5.py`)
+-   **Model Checkpoints**: File trọng số (`.bin` / `.safetensors`) và cấu hình.
+-   **`run_summary.csv`**: Tổng hợp kết quả tốt nhất (F1, Accuracy, Loss).
+-   **`epoch_metrics.csv`**: Chi tiết các chỉ số qua từng epoch.
+-   **`results/evaluation_results.csv`**: (Dành riêng cho T5) Kết quả đánh giá trên các tập test riêng biệt.
 
-Output directory: `outputs/t5_finetuned/`
-- **Model files**: Same as pretraining
-- **`results/evaluation_results.csv`**: Test set evaluation results
-  - Columns: `Model`, `Task`, `Accuracy`, `Weighted F1 Score`, `Macro F1 Score`
-  - Tasks: ViHSD, ViCTSD, ViHOS
+---
 
-### BERT Classification (`train_bert.py`)
+## 💡 Tối ưu hóa hiệu năng (Hardware Tips)
 
-Output directory: `outputs/bert_{dataset}_{timestamp}/`
-- **`epoch_metrics.csv`**: Training metrics per epoch
-  - Columns: `epoch`, `train_loss`, `val_loss`, `val_acc`, `val_f1`, `epoch_seconds`, `learning_rate`
-- **`run_summary.csv`**: Overall training summary
-  - Columns: `dataset`, `model`, `timestamp`, `best_val_f1`, `test_loss`, `test_acc`, `test_f1`, `training_minutes`, `epochs_trained`
-- **Model files**: Same as above
+Tùy vào cấu hình phần cứng, bạn nên điều chỉnh các tham số sau để đạt tốc độ cao nhất:
 
-## Project Structure
+-   **GPU H200 (141GB)**: Có thể dùng `batch_size=512` cho pre-training.
+-   **GPU A100/A800**: Khuyến nghị `batch_size=128-256`.
+-   **GPU Phổ thông (8GB-16GB)**: 
+    -   Bật `gradient_checkpointing=True`.
+    -   Sử dụng `gradient_accumulation_steps` để bù đắp batch size nhỏ.
+    -   Giảm `max_length` xuống 128 nếu bị OOM.
 
-```
+---
+
+## 📂 Cấu trúc thư mục
+
+```text
 .
-├── src/                    # Core source code
-│   ├── pre_train_t5.py    # T5 span corruption pretraining
-│   ├── train_t5.py         # T5 fine-tuning for classification
-│   ├── train_bert.py       # BERT-based classification
-│   ├── data_loader.py      # Dataset loading utilities
-│   ├── evaluate.py         # Model evaluation
-│   ├── inference.py        # Inference utilities
-│   ├── model.py            # Model definitions
-│   ├── utils.py            # Utility functions
-│   └── t5_data_collator.py # T5 span corruption data collator
-├── scripts/                # Training scripts
-│   ├── run_pretrain_t5.sh  # T5 pretraining script
-│   ├── run_train_t5.sh     # T5 fine-tuning script
-│   └── run_train_bert.sh   # BERT training script
-├── outputs/                # Model checkpoints
-├── results/                # Evaluation results
-├── data/                   # Local datasets (optional)
-├── requirements.txt        # Python dependencies
-└── README.md              # This file
+├── src/                    # Mã nguồn chính (Python)
+│   ├── pre_train_t5.py    # Script pre-training
+│   ├── train_t5.py         # Script fine-tuning T5
+│   ├── train_bert.py       # Script huấn luyện BERT
+│   └── data_loader.py      # Xử lý nạp dữ liệu
+├── scripts/                # Bash scripts chạy nhanh
+├── outputs/                # Lưu trữ model checkpoints
+├── results/                # Lưu trữ kết quả đánh giá (CSV)
+└── requirements.txt        # Danh sách thư viện cần thiết
 ```
 
-## Model Checkpoints
+---
 
-### Pretrained Models
+## ⚠️ Giải quyết sự cố thường gặp
 
-- **VietAI/vit5-base**: Vietnamese T5 base model
-- **VietAI/vit5-large**: Vietnamese T5 large model
-- **vinai/phobert-base**: Vietnamese PhoBERT base
-- **vinai/phobert-large**: Vietnamese PhoBERT large
-- **uitnlp/visobert**: ViSoBERT model
+1.  **Lỗi OOM (Out of Memory)**: Giảm `batch_size` hoặc `max_length`.
+2.  **Không tìm thấy module**: Đảm bảo bạn đã `pip install -r requirements.txt` và chạy script từ thư mục gốc.
+3.  **Lỗi nạp Dataset**: Kiểm tra kết nối mạng và đảm bảo tên dataset trên HuggingFace là chính xác.
 
-### Fine-tuned Models
-
-After training, models are saved locally and can be pushed to HuggingFace Hub (if `--save_model_name` is provided in T5 training).
-
-## Performance Tips
-
-### GPU Optimization
-
-- **H200 (141GB)**: Use default settings in `pre_train_t5.py` (batch_size=512)
-- **A100 (40GB)**: Reduce batch_size to 128-256
-- **V100 (16GB)**: Reduce batch_size to 32-64, enable gradient checkpointing
-- **Smaller GPUs**: Use gradient accumulation, reduce max_length
-
-### Memory Optimization
-
-- Enable `gradient_checkpointing=True` for memory efficiency
-- Use `bf16` or `fp16` mixed precision training
-- Reduce `max_length` if encountering OOM errors
-- Use `--max_samples` to limit dataset size during development
-
-## Troubleshooting
-
-### Common Issues
-
-1. **ModuleNotFoundError: t5_data_collator**
-   - Ensure `src/t5_data_collator.py` exists
-   - Check Python path includes project root
-
-2. **CUDA Out of Memory**
-   - Reduce `batch_size` or `per_device_train_batch_size`
-   - Enable `gradient_checkpointing`
-   - Reduce `max_length`
-   - Use gradient accumulation
-
-3. **HuggingFace Authentication**
-   - Run `huggingface-cli login`
-   - Or set `HF_TOKEN` environment variable
-
-4. **Dataset Loading Errors**
-   - Check dataset name spelling
-   - Verify HuggingFace dataset exists
-   - Check internet connection for remote datasets
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@software{vietnamese_hate_speech_detection,
-  title = {Vietnamese Hate Speech Detection},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/vietnamese-hate-speech}
-}
-```
-
-## License
-
-MIT License. See `LICENSE` file for details.
-
-**Research use only. No guarantees provided.**
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-## Acknowledgments
-
-- Datasets: ViHSD, ViCTSD, ViHOS, VOZ-HSD teams
-- Models: VietAI, Vinai, UIT-NLP
-- HuggingFace for the transformers library
+---
+© 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
