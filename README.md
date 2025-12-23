@@ -1,169 +1,352 @@
 # Vietnamese Hate Speech Detection
 
-PhoBERT/ViSoBERT + T5/ViT5 pipelines for Vietnamese hate/toxic speech. Primary metric: macro F1. All runners are provided as bash scripts with full CLI parameters.
+A comprehensive pipeline for Vietnamese hate speech and toxic speech detection using PhoBERT/ViSoBERT and T5/ViT5 models. The project supports pretraining, fine-tuning, and evaluation with multiple datasets.
+
+## Features
+
+- **Pretraining**: T5 span corruption pretraining on Vietnamese text
+- **Fine-tuning**: T5/ViT5 sequence-to-sequence fine-tuning for classification
+- **Classification**: BERT-based (PhoBERT/ViSoBERT) classification models
+- **Multi-dataset support**: ViHSD, ViCTSD, ViHOS, VOZ-HSD, and custom HuggingFace datasets
+- **Comprehensive evaluation**: Automatic test set evaluation with detailed metrics
 
 ## Datasets
-Predefined datasets:
-- **ViHSD** (multi-class): https://huggingface.co/datasets/visolex/ViHSD
-- **ViHSD_processed** (binary): https://huggingface.co/datasets/trinhtrantran122/ViHSD_processed
-- **ViCTSD** (binary toxicity): https://huggingface.co/datasets/tarudesu/ViCTSD
-- **ViHOS** (hate spans -> binary has_hate): https://github.com/phusroyal/ViHOS
-- **VOZ-HSD 2M** (binary): https://huggingface.co/datasets/Minhbao5xx2/VOZ-HSD_2M
-  - `hate_only`: 110k hate samples (label=1)
-  - `balanced`: class 0/1 balanced
 
-**Custom HuggingFace datasets**: You can also load any dataset from HuggingFace Hub by passing the dataset identifier (e.g., `username/dataset_name`). The code will auto-detect text and label columns.
+### Predefined Datasets
 
-## Install
+- **ViHSD** (multi-class): 3-class hate speech detection
+  - Classes: CLEAN, OFFENSIVE, HATE
+  - Source: https://huggingface.co/datasets/visolex/ViHSD
+
+- **ViHSD_processed** (binary): Processed binary version
+  - Source: https://huggingface.co/datasets/trinhtrantran122/ViHSD_processed
+
+- **ViCTSD** (binary): Toxic speech detection
+  - Classes: NONE, TOXIC
+  - Source: https://huggingface.co/datasets/tarudesu/ViCTSD
+
+- **ViHOS** (hate spans): Hate span detection task
+  - Source: https://github.com/phusroyal/ViHOS
+
+- **VOZ-HSD** (binary): Large-scale hate speech dataset
+  - Splits: `balanced`, `hate_only`, `full`
+  - Source: https://huggingface.co/datasets/Minhbao5xx2/re_VOZ-HSD
+
+### Custom Datasets
+
+You can load any dataset from HuggingFace Hub by passing the dataset identifier (e.g., `username/dataset_name`). The code will auto-detect text and label columns.
+
+## Installation
+
+### 1. Create Virtual Environment
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Linux/Mac
+# Windows: .venv\Scripts\activate
+```
+
+### 2. Install Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### HuggingFace token (don't hardcode)
-- Linux/Mac: `huggingface-cli login` or `export HF_TOKEN=...`
-- Windows: Git Bash `huggingface-cli login` or `setx HF_TOKEN "hf_xxx"`
-- `.env` (optional): `echo "HF_TOKEN=..." > .env` and don't commit
+### 3. HuggingFace Authentication
 
-## Quick start (scripts)
+For private models or pushing to Hub:
+
 ```bash
-# PhoBERT/BERT classification (default: ViHSD, phobert-base)
-bash scripts/run_train.sh --dataset ViHSD
+# Linux/Mac
+huggingface-cli login
+# or
+export HF_TOKEN=your_token_here
 
-# T5/ViT5 classification
-bash scripts/run_train_t5.sh --dataset ViHSD --model vit5-base
+# Windows (Git Bash)
+huggingface-cli login
+# or
+setx HF_TOKEN "hf_xxx"
 
-# Encoder classification
-bash scripts/run_train_encoder.sh --dataset ViHSD --model phobert-base
-
-# Auto-label VOZ-HSD with trained classifier
-bash scripts/run_label_dataset.sh
+# Optional: Use .env file (don't commit)
+echo "HF_TOKEN=your_token_here" > .env
 ```
 
-## Full CLI reference (scripts)
+## Quick Start
 
-### scripts/run_train.sh — PhoBERT/BERT classification
-Required: --dataset. One-liner format:
-```bash
-bash scripts/run_train.sh --dataset ViHSD --model_name vinai/phobert-base --epochs 10 --batch_size 16 --max_length 256 --learning_rate 2e-5 --weight_decay 0.01 --warmup_ratio 0.1 --patience 3 --seed 42 --output_dir models/ViHSD_phobert_custom
-```
-**Parameter reference:**
-- `--dataset` (required): ViHSD | ViCTSD | ViHOS | ViHSD_processed | Minhbao5xx2/VOZ-HSD_2M | or any HuggingFace dataset (e.g., `username/dataset_name`)
-- `--model_name`: vinai/phobert-base | vinai/phobert-large | uitnlp/visobert | bert-base-multilingual-cased
-- `--epochs`, `--batch_size`, `--max_length`: int
-- `--learning_rate`, `--weight_decay`, `--warmup_ratio`: float
-- `--patience`: int (early stopping)
-- `--seed`: int
-- `--output_dir`: optional
+### T5 Pretraining (Span Corruption)
 
-### scripts/run_train_t5.sh — T5/ViT5 classification (Seq2SeqTrainer)
-Required: --dataset. One-liner format:
-```bash
-bash scripts/run_train_t5.sh --dataset Minhbao5xx2/VOZ-HSD_2M --model vit5-base --epochs 5 --batch_size 8 --learning_rate 1e-4 --max_length 512 --dev_ratio 0.1 --output_dir models/vit5_custom
-```
-**Parameter reference:**
-- `--dataset` (required): ViHSD | ViCTSD | ViHOS | ViHSD_processed | Minhbao5xx2/VOZ-HSD_2M | or any HuggingFace dataset (e.g., `username/dataset_name`)
-- `--model`: t5-small | t5-base | t5-large | vit5-base | vit5-large | vit5-large-1024
-- `--epochs`, `--batch_size`, `--max_length`: int
-- `--learning_rate`, `--dev_ratio`: float
-- `--output_dir`: optional
+Pretrain T5/ViT5 models on Vietnamese text using span corruption objective:
 
-### scripts/run_train_encoder.sh — encoder classification (Trainer)
-Required: --dataset, --model. One-liner format:
 ```bash
-bash scripts/run_train_encoder.sh --dataset ViHSD_processed --model visobert --epochs 10 --batch_size 16 --learning_rate 1e-5 --weight_decay 0.01 --max_length 128 --output_dir models/ViHSD_encoder_cls_custom
-```
-You can also pass a direct HuggingFace model id:
-```bash
-bash scripts/run_train_encoder.sh --dataset ViHSD_processed --model uitnlp/visobert --epochs 10 --batch_size 16 --learning_rate 1e-5 --weight_decay 0.01 --max_length 128 --output_dir models/ViHSD_encoder_cls_custom
-```
-**Parameter reference:**
-- `--dataset` (required): ViHSD | ViCTSD | ViHOS | ViHSD_processed | Minhbao5xx2/VOZ-HSD_2M | or any HuggingFace dataset (e.g., `username/dataset_name`)
-- `--model` (required): preset key (phobert-base, phobert-large, visobert, t5-base, t5-large, vit5-base, vit5-large) OR a HuggingFace model id
-- `--epochs`, `--batch_size`, `--max_length`: int (override preset)
-- `--learning_rate`, `--weight_decay`: float (override preset)
-- `--output_dir`: optional
+# Basic usage with default settings
+bash scripts/run_pretrain_t5.sh
 
-### scripts/run_label_dataset.sh — auto-label VOZ-HSD
-Edit script variables or export before run: MODEL_PATH (required), SPLIT (train|validation|test), TOTAL_BATCHES (1=sequential, >1=parallel), BATCH_SIZE, MAX_LENGTH, OUTPUT_DIR, MAX_SAMPLES (optional).
-```bash
-bash scripts/run_label_dataset.sh
-```
-Manual single-batch:
-```bash
-python src/label_dataset.py --model_path models/ViHSD_processed_phobert-base_YYYYMMDD_HHMMSS --split train --batch_idx 0 --total_batches 1 --batch_size 32 --max_length 256 --output_dir labeled_data/voz_hsd
+# Custom dataset and parameters
+bash scripts/run_pretrain_t5.sh \
+    --dataset_name "Minhbao5xx2/re_VOZ-HSD" \
+    --split_name "hate_only" \
+    --max_samples 50000 \
+    --output_dir "vihate_t5_pretrain"
 ```
 
-### scripts/run_experiments.sh — batch classifiers
-Runs PhoBERT classification on ViHSD, ViCTSD, ViHOS sequentially. Edit defaults inside script then:
+**Parameters:**
+- `--dataset_name`: Dataset identifier (e.g., `Minhbao5xx2/re_VOZ-HSD`) or `None` for local files
+- `--split_name`: For VOZ-HSD: `balanced`, `hate_only`, or `full` (default: `balanced`)
+- `--max_samples`: Maximum number of samples to use (optional)
+- `--train_file`: Path to local training text file (one example per line)
+- `--valid_file`: Path to local validation text file (one example per line)
+- `--output_dir`: Output directory (default: `vihate_t5_pretrain`)
+
+**Note:** The pretraining script is optimized for H200 GPUs (141GB HBM3) with large batch sizes. Adjust `per_device_train_batch_size` in `src/pre_train_t5.py` if using smaller GPUs.
+
+### T5 Fine-tuning
+
+Fine-tune T5/ViT5 models for sequence-to-sequence classification:
+
 ```bash
-bash scripts/run_experiments.sh
+# Basic usage
+bash scripts/run_train_t5.sh
+
+# Custom configuration
+bash scripts/run_train_t5.sh \
+    --save_model_name "ViHateT5-custom" \
+    --pre_trained_ckpt "VietAI/vit5-base" \
+    --output_dir "outputs/t5_finetuned" \
+    --batch_size 32 \
+    --num_epochs 4 \
+    --learning_rate 2e-4 \
+    --gpu "0"
 ```
 
-## Direct Python (advanced)
-PhoBERT classification:
+**Parameters:**
+- `--save_model_name`: Name for the fine-tuned model (required for Hub push)
+- `--pre_trained_ckpt`: Pre-trained checkpoint (default: `VietAI/vit5-base`)
+- `--output_dir`: Output directory (default: `outputs/t5_finetuned`)
+- `--batch_size`: Batch size (default: 32)
+- `--num_epochs`: Number of epochs (default: 4)
+- `--learning_rate`: Learning rate (default: 2e-4)
+- `--gpu`: GPU device ID (default: "0")
+
+**Note:** The script trains on ViHSD, ViCTSD, and ViHOS datasets combined, then evaluates on each test set separately.
+
+### BERT-based Classification
+
+Train PhoBERT/ViSoBERT models for classification:
+
 ```bash
-python src/train.py --dataset ViHSD_processed --model_name uitnlp/visobert --max_length 128 --batch_size 16 --epochs 15 --learning_rate 1e-5 --weight_decay 0.01 --warmup_ratio 0.1 --patience 3 --seed 42 --output_dir models/custom_phobert
+# Basic usage
+bash scripts/run_train_bert.sh --dataset ViHSD
+
+# Full configuration
+bash scripts/run_train_bert.sh \
+    --dataset ViHSD \
+    --model_name "vinai/phobert-base" \
+    --max_length 256 \
+    --batch_size 16 \
+    --epochs 10 \
+    --learning_rate 2e-5 \
+    --weight_decay 0.01 \
+    --warmup_ratio 0.1 \
+    --patience 3 \
+    --seed 42 \
+    --output_dir "outputs/bert_custom"
 ```
 
-T5/ViT5 classification:
+**Parameters:**
+- `--dataset` (required): Dataset name (ViHSD, ViCTSD, ViHOS, ViHSD_processed, Minhbao5xx2/VOZ-HSD_2M, or HuggingFace dataset)
+- `--model_name`: Model identifier (default: `vinai/phobert-base`)
+  - Options: `vinai/phobert-base`, `vinai/phobert-large`, `uitnlp/visobert`, `bert-base-multilingual-cased`
+- `--max_length`: Maximum sequence length (default: 256)
+- `--batch_size`: Batch size (default: 16)
+- `--epochs`: Number of epochs (default: 10)
+- `--learning_rate`: Learning rate (default: 2e-5)
+- `--weight_decay`: Weight decay (default: 0.01)
+- `--warmup_ratio`: Warmup ratio (default: 0.1)
+- `--patience`: Early stopping patience (default: 3)
+- `--seed`: Random seed (default: 42)
+- `--output_dir`: Output directory (auto-generated if not specified)
+
+## Direct Python Usage
+
+### T5 Pretraining
+
 ```bash
-python src/train_t5.py --dataset Minhbao5xx2/VOZ-HSD_2M --model_name VietAI/vit5-base --max_length 512 --batch_size 8 --epochs 5 --learning_rate 1e-4 --dev_ratio 0.1 --output_dir models/vit5_custom
+python src/pre_train_t5.py \
+    --dataset_name "Minhbao5xx2/re_VOZ-HSD" \
+    --split_name "hate_only" \
+    --max_samples 50000
+```
+
+### T5 Fine-tuning
+
+```bash
+python src/train_t5.py \
+    --save_model_name "ViHateT5-finetuned" \
+    --pre_trained_ckpt "VietAI/vit5-base" \
+    --output_dir "outputs/t5_finetuned" \
+    --batch_size 32 \
+    --num_epochs 4 \
+    --learning_rate 2e-4 \
+    --gpu "0"
+```
+
+### BERT Classification
+
+```bash
+python src/train_bert.py \
+    --dataset ViHSD \
+    --model_name "vinai/phobert-base" \
+    --max_length 256 \
+    --batch_size 16 \
+    --epochs 10 \
+    --learning_rate 2e-5 \
+    --weight_decay 0.01 \
+    --warmup_ratio 0.1 \
+    --patience 3 \
+    --seed 42 \
+    --output_dir "outputs/bert_custom"
 ```
 
 ## Evaluation
+
+Evaluate a trained model on a specific dataset:
+
 ```bash
-python src/evaluate.py --model_path Minhbao5xx2/vit5_multi_dataset --dataset ViCTSD --output_dir results/
+python src/evaluate.py \
+    --model_path "outputs/bert_custom" \
+    --dataset ViHSD \
+    --output_dir "results/"
 ```
 
-## Output Files (CSV Tracking)
+## Output Files
 
-After training, each model directory contains CSV files for tracking and reproducibility:
+### T5 Pretraining (`pre_train_t5.py`)
 
-### PhoBERT/BERT Classification (`train.py`)
-Output directory: `models/{dataset}_{model}_{timestamp}/`
+Output directory: `vihate_t5_pretrain/final/`
+- Model weights: `pytorch_model.bin` or `model.safetensors`
+- Model config: `config.json`
+- Tokenizer files: `tokenizer.json`, `tokenizer_config.json`, `vocab.txt`
+
+### T5 Fine-tuning (`train_t5.py`)
+
+Output directory: `outputs/t5_finetuned/`
+- **Model files**: Same as pretraining
+- **`results/evaluation_results.csv`**: Test set evaluation results
+  - Columns: `Model`, `Task`, `Accuracy`, `Weighted F1 Score`, `Macro F1 Score`
+  - Tasks: ViHSD, ViCTSD, ViHOS
+
+### BERT Classification (`train_bert.py`)
+
+Output directory: `outputs/bert_{dataset}_{timestamp}/`
 - **`epoch_metrics.csv`**: Training metrics per epoch
   - Columns: `epoch`, `train_loss`, `val_loss`, `val_acc`, `val_f1`, `epoch_seconds`, `learning_rate`
 - **`run_summary.csv`**: Overall training summary
   - Columns: `dataset`, `model`, `timestamp`, `best_val_f1`, `test_loss`, `test_acc`, `test_f1`, `training_minutes`, `epochs_trained`
+- **Model files**: Same as above
 
-### T5/ViT5 Classification (`train_t5.py`)
-Output directory: `models/{dataset}_{model}_{timestamp}/`
-- **`training_config.csv`**: Hyperparameters and dataset configuration
-  - Columns: `dataset`, `model_name`, `max_length`, `batch_size`, `epochs`, `learning_rate`, `dev_ratio`, `train_samples`, `val_samples`, `test_samples`, `num_labels`, `text_col`, `label_col`
-- **`training_history.csv`**: Metrics per epoch/step
-  - Columns: `epoch`, `step`, `train_loss`, `train_runtime`, `train_samples_per_second`, `eval_loss`, `eval_accuracy`, `eval_f1_macro`, `eval_gen_len`, `learning_rate`
-- **`test_results.csv`**: Final test set evaluation
-  - Columns: `eval_loss`, `eval_accuracy`, `eval_f1_macro`, `eval_gen_len`, and other metrics
-- **`run_summary.csv`**: Overall training summary
-  - Columns: `dataset`, `model_name`, `timestamp`, `train_samples`, `val_samples`, `test_samples`, `best_eval_accuracy`, `best_eval_f1_macro`, `test_accuracy`, `test_f1_macro`, `test_loss`, `training_minutes`, `epochs_trained`, `batch_size`, `learning_rate`, `max_length`
+## Project Structure
 
-### Auto-labeling (`label_dataset.py`)
-Output directory: `labeled_data/{split}/`
-- **`{split}_labeled.csv`**: Labeled dataset with predictions
-  - Columns: Original dataset columns + `predicted_label`, `original_label`
-- **`metrics_summary.csv`**: Batch metrics summary (when using parallel processing)
-  - Columns: `batch_idx`, `total_batches`, `split`, `samples`, `accuracy`, `precision`, `recall`, `f1`, `agreement`, `disagreement`
-
-### Model Files
-All training scripts also save:
-- `pytorch_model.bin` or `model.safetensors`: Model weights
-- `config.json`: Model configuration
-- `tokenizer.json`, `tokenizer_config.json`, `vocab.txt`: Tokenizer files
-- `logs/`: TensorBoard logs directory
-
-## Project layout
 ```
-src/            # core code (train, evaluate, inference, data)
-scripts/        # runners (train, experiments, labeling, encoder MLM)
-notebooks/      # train.ipynb, eda.ipynb, inference_demo.ipynb
-models/         # saved checkpoints
-results/        # metrics/plots
-logs/           # execution logs
+.
+├── src/                    # Core source code
+│   ├── pre_train_t5.py    # T5 span corruption pretraining
+│   ├── train_t5.py         # T5 fine-tuning for classification
+│   ├── train_bert.py       # BERT-based classification
+│   ├── data_loader.py      # Dataset loading utilities
+│   ├── evaluate.py         # Model evaluation
+│   ├── inference.py        # Inference utilities
+│   ├── model.py            # Model definitions
+│   ├── utils.py            # Utility functions
+│   └── t5_data_collator.py # T5 span corruption data collator
+├── scripts/                # Training scripts
+│   ├── run_pretrain_t5.sh  # T5 pretraining script
+│   ├── run_train_t5.sh     # T5 fine-tuning script
+│   └── run_train_bert.sh   # BERT training script
+├── outputs/                # Model checkpoints
+├── results/                # Evaluation results
+├── data/                   # Local datasets (optional)
+├── requirements.txt        # Python dependencies
+└── README.md              # This file
+```
+
+## Model Checkpoints
+
+### Pretrained Models
+
+- **VietAI/vit5-base**: Vietnamese T5 base model
+- **VietAI/vit5-large**: Vietnamese T5 large model
+- **vinai/phobert-base**: Vietnamese PhoBERT base
+- **vinai/phobert-large**: Vietnamese PhoBERT large
+- **uitnlp/visobert**: ViSoBERT model
+
+### Fine-tuned Models
+
+After training, models are saved locally and can be pushed to HuggingFace Hub (if `--save_model_name` is provided in T5 training).
+
+## Performance Tips
+
+### GPU Optimization
+
+- **H200 (141GB)**: Use default settings in `pre_train_t5.py` (batch_size=512)
+- **A100 (40GB)**: Reduce batch_size to 128-256
+- **V100 (16GB)**: Reduce batch_size to 32-64, enable gradient checkpointing
+- **Smaller GPUs**: Use gradient accumulation, reduce max_length
+
+### Memory Optimization
+
+- Enable `gradient_checkpointing=True` for memory efficiency
+- Use `bf16` or `fp16` mixed precision training
+- Reduce `max_length` if encountering OOM errors
+- Use `--max_samples` to limit dataset size during development
+
+## Troubleshooting
+
+### Common Issues
+
+1. **ModuleNotFoundError: t5_data_collator**
+   - Ensure `src/t5_data_collator.py` exists
+   - Check Python path includes project root
+
+2. **CUDA Out of Memory**
+   - Reduce `batch_size` or `per_device_train_batch_size`
+   - Enable `gradient_checkpointing`
+   - Reduce `max_length`
+   - Use gradient accumulation
+
+3. **HuggingFace Authentication**
+   - Run `huggingface-cli login`
+   - Or set `HF_TOKEN` environment variable
+
+4. **Dataset Loading Errors**
+   - Check dataset name spelling
+   - Verify HuggingFace dataset exists
+   - Check internet connection for remote datasets
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@software{vietnamese_hate_speech_detection,
+  title = {Vietnamese Hate Speech Detection},
+  author = {Your Name},
+  year = {2024},
+  url = {https://github.com/yourusername/vietnamese-hate-speech}
+}
 ```
 
 ## License
-MIT. See `LICENSE`.
 
-Research-only; no guarantees.
+MIT License. See `LICENSE` file for details.
+
+**Research use only. No guarantees provided.**
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+## Acknowledgments
+
+- Datasets: ViHSD, ViCTSD, ViHOS, VOZ-HSD teams
+- Models: VietAI, Vinai, UIT-NLP
+- HuggingFace for the transformers library
