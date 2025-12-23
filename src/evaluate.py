@@ -217,12 +217,15 @@ def main():
     
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     
-    # Check if model is Flax-based (like ViHateT5)
-    if "ViHateT5" in args.model_id:
-        print("  Loading from Flax weights (ViHateT5)...")
-        model = AutoModelForSeq2SeqLM.from_pretrained(args.model_id, from_flax=True)
-    else:
+    # Try loading PyTorch weights first; fall back to Flax if that fails.
+    try:
+        print("  Attempting to load PyTorch weights...")
         model = AutoModelForSeq2SeqLM.from_pretrained(args.model_id)
+        print("  Loaded PyTorch weights successfully.")
+    except Exception as e:
+        print(f"  PyTorch load failed: {e}")
+        print("  Attempting to load from Flax weights (fallback)...")
+        model = AutoModelForSeq2SeqLM.from_pretrained(args.model_id, from_flax=True)
     
     model.eval()
     print("  Model loaded successfully!")
