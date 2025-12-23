@@ -37,6 +37,12 @@ parser.add_argument('--output_dir', type=str, help='Path to output directory for
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
 parser.add_argument('--num_epochs', type=int, default=4, help='Number of epochs')
 parser.add_argument('--learning_rate', type=float, default=2e-4, help='Learning rate')
+parser.add_argument('--max_length', type=int, default=256, help='Maximum sequence length')
+parser.add_argument('--gradient_accumulation_steps', type=int, default=1, help='Gradient accumulation steps')
+parser.add_argument('--weight_decay', type=float, default=0.01, help='Weight decay')
+parser.add_argument('--warmup_ratio', type=float, default=0.0, help='Warmup ratio')
+parser.add_argument('--lr_scheduler_type', type=str, default='constant', help='Learning rate scheduler type')
+parser.add_argument('--seed', type=int, default=42, help='Random seed')
 parser.add_argument('--gpu', type=str, default='0', help='GPU number')
 
 # Parse arguments
@@ -151,11 +157,11 @@ def generate_output_batch(test_df, model, tokenizer, batch_size=32):
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=256
+                max_length=bash_args.max_length
             ).to(device)
             
             # Generate outputs for batch (following author's approach: max_length=256)
-            output_ids = model.generate(**enc, max_length=256)
+            output_ids = model.generate(**enc, max_length=64) # Labels are short
             
             # Decode batch
             decoded = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -288,8 +294,8 @@ else:
     model = T5ForConditionalGeneration.from_pretrained(model_id)
 
 def preprocess_function(sample,padding="max_length"):
-    model_inputs = tokenizer(sample["source"], max_length=256, padding=padding, truncation=True)
-    labels = tokenizer(sample["target"], max_length=256, padding=padding, truncation=True)
+    model_inputs = tokenizer(sample["source"], max_length=bash_args.max_length, padding=padding, truncation=True)
+    labels = tokenizer(sample["target"], max_length=64, padding=padding, truncation=True) # Labels are short for classification
     if padding == "max_length":
         labels["input_ids"] = [
             [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
@@ -309,8 +315,13 @@ training_args = Seq2SeqTrainingArguments(
     output_dir=output_dir,
     per_device_train_batch_size=bash_args.batch_size,
     per_device_eval_batch_size=bash_args.batch_size,
+    gradient_accumulation_steps=bash_args.gradient_accumulation_steps,
     learning_rate=bash_args.learning_rate,
+    weight_decay=bash_args.weight_decay,
     num_train_epochs=bash_args.num_epochs,
+    warmup_ratio=bash_args.warmup_ratio,
+    lr_scheduler_type=bash_args.lr_scheduler_type,
+    seed=bash_args.seed,
     logging_dir=f"{output_dir}/logs",
     logging_strategy="epoch",
     save_strategy="epoch",
@@ -321,8 +332,6 @@ training_args = Seq2SeqTrainingArguments(
     do_train=True,
     do_eval=True,
     predict_with_generate=True,
-    warmup_ratio=0.0,  # Disable warmup
-    lr_scheduler_type="constant",  # Use constant learning rate (no scheduling)
 )
 
 model.config.use_cache = False

@@ -9,6 +9,12 @@ OUTPUT_DIR="outputs/t5_finetuned"
 BATCH_SIZE=32
 NUM_EPOCHS=4
 LEARNING_RATE=2e-4
+MAX_LENGTH=256
+GRAD_ACC_STEPS=1
+WEIGHT_DECAY=0.01
+WARMUP_RATIO=0.0
+LR_SCHEDULER="constant"
+SEED=42
 GPU="0"
 
 # Parse command line arguments
@@ -38,13 +44,37 @@ while [[ $# -gt 0 ]]; do
             LEARNING_RATE="$2"
             shift 2
             ;;
+        --max_length)
+            MAX_LENGTH="$2"
+            shift 2
+            ;;
+        --gradient_accumulation_steps)
+            GRAD_ACC_STEPS="$2"
+            shift 2
+            ;;
+        --weight_decay)
+            WEIGHT_DECAY="$2"
+            shift 2
+            ;;
+        --warmup_ratio)
+            WARMUP_RATIO="$2"
+            shift 2
+            ;;
+        --lr_scheduler_type)
+            LR_SCHEDULER="$2"
+            shift 2
+            ;;
+        --seed)
+            SEED="$2"
+            shift 2
+            ;;
         --gpu)
             GPU="$2"
             shift 2
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: bash scripts/run_train_t5.sh [--save_model_name NAME] [--pre_trained_ckpt CKPT] [--output_dir DIR] [--batch_size N] [--num_epochs N] [--learning_rate LR] [--gpu GPU]"
+            echo "Usage: bash scripts/run_train_t5.sh [options]"
             exit 1
             ;;
     esac
@@ -63,6 +93,12 @@ echo "Output directory: $OUTPUT_DIR"
 echo "Batch size: $BATCH_SIZE"
 echo "Number of epochs: $NUM_EPOCHS"
 echo "Learning rate: $LEARNING_RATE"
+echo "Max length: $MAX_LENGTH"
+echo "Gradient accumulation steps: $GRAD_ACC_STEPS"
+echo "Weight decay: $WEIGHT_DECAY"
+echo "Warmup ratio: $WARMUP_RATIO"
+echo "LR scheduler: $LR_SCHEDULER"
+echo "Seed: $SEED"
 echo "GPU: $GPU"
 echo "=========================================="
 echo ""
@@ -75,8 +111,13 @@ python src/train_t5.py \
     --batch_size $BATCH_SIZE \
     --num_epochs $NUM_EPOCHS \
     --learning_rate $LEARNING_RATE \
+    --max_length $MAX_LENGTH \
+    --gradient_accumulation_steps $GRAD_ACC_STEPS \
+    --weight_decay $WEIGHT_DECAY \
+    --warmup_ratio $WARMUP_RATIO \
+    --lr_scheduler_type "$LR_SCHEDULER" \
+    --seed $SEED \
     --gpu "$GPU"
 
 echo ""
 echo "✅ Fine-tuning completed! Model saved to: $OUTPUT_DIR"
-

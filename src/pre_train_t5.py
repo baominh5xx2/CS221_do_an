@@ -26,6 +26,12 @@ def parse_args():
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum number of samples to use (for limiting dataset size)")
     parser.add_argument("--train_file", type=str, default="data/train.txt", help="Path to training text file (one example per line)")
     parser.add_argument("--valid_file", type=str, default="data/valid.txt", help="Path to validation text file (one example per line)")
+    parser.add_argument("--output_dir", type=str, default="vihate_t5_pretrain", help="Output directory")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size per device")
+    parser.add_argument("--lr", type=float, default=5e-3, help="Learning rate")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--bf16", action="store_true", help="Use bf16")
     return parser.parse_args()
 
 
@@ -123,23 +129,23 @@ data_collator = DataCollatorForT5MLM(
 # H200 có thể handle batch size rất lớn, tối ưu để tận dụng memory và throughput
 # NOTE: Nếu gặp OOM, giảm per_device_train_batch_size xuống (256, 128, 64...) hoặc tăng gradient_accumulation_steps
 training_args = TrainingArguments(
-    output_dir="vihate_t5_pretrain",
-    num_train_epochs=10,
-    learning_rate=5e-3,
+    output_dir=args.output_dir,
+    num_train_epochs=args.epochs,
+    learning_rate=args.lr,
     weight_decay=0.001,
     warmup_steps=2000,
     # H200: tăng batch size lớn để tận dụng 141GB memory
     # Có thể tăng lên 1024+ nếu model nhỏ, hoặc giảm nếu OOM
-    per_device_train_batch_size=512,  # Tăng từ 128 lên 512 cho H200
-    per_device_eval_batch_size=512,
-    gradient_accumulation_steps=1,  # Giảm xuống 1 vì batch size đã lớn (tăng nếu OOM)
+    per_device_train_batch_size=args.batch_size,
+    per_device_eval_batch_size=args.batch_size,
+    gradient_accumulation_steps=args.gradient_accumulation_steps,
     # DataLoader optimizations cho H200
     dataloader_num_workers=8,  # Parallel data loading
     dataloader_pin_memory=True,  # Faster GPU transfer
     # Memory & speed optimizations
     gradient_checkpointing=True,  # Trade compute for memory (cho phép batch size lớn hơn)
-    bf16=True,  # H200 hỗ trợ tốt bf16
-    bf16_full_eval=True,  # Use bf16 cho evaluation
+    bf16=args.bf16,  # H200 hỗ trợ tốt bf16
+    bf16_full_eval=args.bf16,  # Use bf16 cho evaluation
     # Training settings
     evaluation_strategy="steps",
     eval_steps=2000,
@@ -152,8 +158,6 @@ training_args = TrainingArguments(
     # Additional H200 optimizations
     ddp_find_unused_parameters=False,  # Faster DDP nếu dùng multi-GPU
     remove_unused_columns=False,  # Keep columns for data collator
-    # Max steps (optional, comment out if using epochs)
-    # max_steps=100000,
 )
 
 trainer = Trainer(
