@@ -234,6 +234,24 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 
 ---
 
+## **Table 6 — BERT-based models comparison (sorted by Macro F1)**
+| **Multilingual Pre-trained Models** |  |  |  |
+| :--- | :---: | :---: | :---: |
+| xlm-roberta-base | 0.9189 | 0.7722 | 0.8028 |
+| xlm-roberta-large | 0.9204 | 0.7755 | 0.7968 |
+| google-bert/bert-base-multilingual-uncased | 0.9102 | 0.7557 | 0.7784 |
+| distilbert-base-multilingual-cased | 0.9115 | 0.7459 | 0.7754 |
+| google-bert/bert-base-multilingual-cased | 0.9094 | 0.7548 | 0.7740 |
+
+| **Monolingual Pre-trained Models** |  |  |  |
+| :--- | :---: | :---: | :---: |
+| **uitnlp/visobert** | 0.9296 | 0.8051 | 0.8128 |
+| vinai/phobert-base-v2 | 0.9216 | 0.7888 | 0.7810 |
+| FPTAI/vibert-base-cased | 0.9117 | 0.7385 | 0.7771 |
+| vinai/phobert-base | 0.9231 | 0.7562 | 0.7764 |
+| vinai/phobert-large | 0.8970 | 0.4729 | 0.4772 |
+---
+
 ## 📈 Kết quả & Output
 
 Sau khi chạy training, kết quả sẽ được lưu vào thư mục `outputs/` hoặc `vihate_t5_pretrain/`:
