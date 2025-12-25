@@ -278,7 +278,7 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 | vinai/phobert-base-v2 | 0.9216 | 0.7888 | 0.7810 |
 | FPTAI/vibert-base-cased | 0.9117 | 0.7385 | 0.7771 |
 | vinai/phobert-base | 0.9231 | 0.7562 | 0.7764 |
-| vinai/phobert-large | 0.8970 | 0.4729 | 0.4772 |
+| vinai/phobert-large | 0.9245 | 0.7895 | 0.7832 |
 ---
 
 ## 📈 Kết quả & Output
