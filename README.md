@@ -6,6 +6,8 @@
 
 Một hệ thống toàn diện cho bài toán phát hiện ngôn ngữ thù ghét (Hate Speech) và bình luận độc hại (Toxic Speech) tiếng Việt, sử dụng các kiến trúc SOTA như **PhoBERT/ViSoBERT** và **T5/ViT5**.
 
+> 📄 **Paper**: [ViHATE T5: Enhancing Hate Speech Detection in Vietnamese With a Unified Text-to-Text Transformer Model](https://aclanthology.org/2024.findings-acl.355.pdf) (ACL 2024 Findings)
+
 ---
 
 ## 📌 Tổng quan dự án
@@ -14,6 +16,16 @@ Dự án cung cấp 3 pipeline chính cho phép bạn đi từ dữ liệu thô 
 1.  **Pre-training**: Tiếp tục huấn luyện T5 với cơ chế *Span Corruption* trên dữ liệu tiếng Việt.
 2.  **T5 Fine-tuning**: Huấn luyện Seq2Seq cho bài toán phân loại đa tập dữ liệu.
 3.  **BERT Classification**: Huấn luyện các mô hình Encoder-only (PhoBERT, ViSoBERT) truyền thống.
+
+---
+
+## 👥 Thành viên nhóm
+
+| STT | Họ và Tên | MSSV |
+| :---: | :--- | :---: |
+| 1 | Trịnh Trân Trân | 23521624 |
+| 2 | Phạm Thị Ngọc Bích | 23520148 |
+| 3 | Nguyễn Minh Bảo | 23520123 |
 
 ---
 
@@ -117,7 +129,22 @@ bash scripts/run_train_bert.sh \
 | `--weight_decay` | Suy giảm trọng số | `0.01` | `0.001` |
 | `--warmup_ratio` / `--warmup_steps`| Tỉ lệ/Số bước khởi động | `0.0` | `2000` |
 | `--seed` | Random seed | `42` | - |
+---
 
+## 📊 Kết quả Auto-Labeling VOZ-HSD Dataset
+
+### Labeling Performance (ViSoBERT Model)
+
+Mô hình **CS221_Labeling_visobert** được sử dụng để tự động gán nhãn cho tập dữ liệu VOZ-HSD:
+
+| Metric | Kết quả |
+| :--- | :---: |
+| **Tổng samples đã gán nhãn** | 12,321,518 |
+| **Agreement với manual labels** | **97.5%** ✅ |
+| **Accuracy** | 97.5% |
+| **Processing Time** | Batch processing on H200 GPU |
+
+> **Nhận xét**: Mô hình ViSoBERT đạt độ chính xác cao **97.5%** so với manual labels của tác giả gốc, chứng minh tính hiệu quả của phương pháp auto-labeling. Tập dữ liệu được xử lý hoàn toàn và sẵn sàng để sử dụng cho pre-training và fine-tuning các mô hình T5.
 ---
 
 ## 📊 Kết quả thực nghiệm (Table 3 - Paper)
@@ -229,8 +256,7 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 | :--- | :---: | :---: | :---: | :---: |
 | **Pre-trained (100K, Hate-Only)** | 0.6808 | 0.6586 | 0.8541 | **0.7312** |
 | **Pre-trained (200K, Balanced)** | 0.6621 | 0.6921 | 0.8598 | **0.7380** |
-| **Fine-tuned from scratch (ViHateT5)** | 0.6867 | 0.7163 | 0.8637 | **0.7556** |
-| **Overall Average** | **0.6765** | **0.6890** | **0.8592** | **0.7416** |
+| **Overall Average** | **0.6715** | **0.6754** | **0.8570** | **0.7346** |
 
 ---
 
@@ -265,7 +291,7 @@ Sau khi chạy training, kết quả sẽ được lưu vào thư mục `outputs
 
 ## 💡 Tối ưu hóa hiệu năng (Hardware Tips)
 
-> **Lưu ý**: Tất cả các kết quả thực nghiệm trong dự án này đều được thực hiện trên GPU **NVIDIA H200** và **P100**.
+> **Lưu ý**: Tất cả các kết quả thực nghiệm trong dự án này đều được thực hiện trên GPU **NVIDIA H200** (được cung cấp bởi FPT thông qua voucher) và **P100**.
 
 Tùy vào cấu hình phần cứng, bạn nên điều chỉnh các tham số sau để đạt tốc độ cao nhất:
 
@@ -298,4 +324,24 @@ Tùy vào cấu hình phần cứng, bạn nên điều chỉnh các tham số s
 3.  **Tốc độ chậm**: Kiểm tra `dataloader_num_workers` và sử dụng GPU phù hợp.
 
 ---
+
+## 📚 Citation
+
+Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòng cite paper sau:
+
+```bibtex
+@inproceedings{nguyen2024vihate,
+  title={ViHATE T5: Enhancing Hate Speech Detection in Vietnamese With a Unified Text-to-Text Transformer Model},
+  author={Nguyen, Luan Thanh},
+  booktitle={Findings of the Association for Computational Linguistics: ACL 2024},
+  pages={5948--5961},
+  year={2024},
+  url={https://aclanthology.org/2024.findings-acl.355.pdf}
+}
+```
+
+**Paper**: [ViHATE T5: Enhancing Hate Speech Detection in Vietnamese With a Unified Text-to-Text Transformer Model](https://aclanthology.org/2024.findings-acl.355.pdf) (ACL 2024 Findings)
+
+---
+
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
