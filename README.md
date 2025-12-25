@@ -261,7 +261,9 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 ---
 
 ## **Table 6 — BERT-based models comparison (sorted by Macro F1)**
-| **Multilingual Pre-trained Models** |  |  |  |
+
+### Multilingual Pre-trained Models
+| Model | Accuracy | F1 Weighted | F1 Macro |
 | :--- | :---: | :---: | :---: |
 | xlm-roberta-base | 0.9189 | 0.7722 | 0.8028 |
 | xlm-roberta-large | 0.9204 | 0.7755 | 0.7968 |
@@ -269,9 +271,10 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 | distilbert-base-multilingual-cased | 0.9115 | 0.7459 | 0.7754 |
 | google-bert/bert-base-multilingual-cased | 0.9094 | 0.7548 | 0.7740 |
 
-| **Monolingual Pre-trained Models** |  |  |  |
+### Monolingual Pre-trained Models
+| Model | Accuracy | F1 Weighted | F1 Macro |
 | :--- | :---: | :---: | :---: |
-| **uitnlp/visobert** | 0.9296 | 0.8051 | 0.8128 |
+| **uitnlp/visobert** | 0.9296 | 0.8051 | **0.8128** |
 | vinai/phobert-base-v2 | 0.9216 | 0.7888 | 0.7810 |
 | FPTAI/vibert-base-cased | 0.9117 | 0.7385 | 0.7771 |
 | vinai/phobert-base | 0.9231 | 0.7562 | 0.7764 |
