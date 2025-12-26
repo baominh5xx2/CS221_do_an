@@ -87,7 +87,7 @@ Dưới đây là các tài nguyên chính được phát triển trong dự án
 bash scripts/run_pretrain_t5.sh \
     --dataset_name "Minhbao5xx2/re_VOZ-HSD" \
     --split_name "hate_only" \
-    --batch_size 512 \
+    --batch_size 128 \
     --epochs 10 \
     --lr 5e-3
 ```
@@ -121,7 +121,7 @@ bash scripts/run_train_bert.sh \
 | :--- | :--- | :--- | :--- |
 | `--dataset_name` / `--dataset` | Tên dataset (HF hoặc Local) | ✅ | ✅ |
 | `--pre_trained_ckpt` | Model gốc (ViT5, checkpoint...) | ✅ | - |
-| `--batch_size` | Batch size mỗi GPU | `32` | `512` |
+| `--batch_size` | Batch size mỗi GPU | `32` | `128` |
 | `--num_epochs` / `--epochs` | Số epoch huấn luyện | `4` | `10` |
 | `--learning_rate` / `--lr` | Tốc độ học (Learning Rate) | `2e-4` | `5e-3` |
 | `--max_length` | Độ dài sequence tối đa | `256` | - |
@@ -296,7 +296,7 @@ Sau khi chạy training, kết quả sẽ được lưu vào thư mục `outputs
 
 Tùy vào cấu hình phần cứng, bạn nên điều chỉnh các tham số sau để đạt tốc độ cao nhất:
 
--   **GPU H200 (141GB)**: Có thể dùng `batch_size=512` cho pre-training.
+-   **GPU H200 (141GB)**: Có thể dùng `batch_size=128` cho pre-training.
 -   **GPU A100/A800 / P100**: Khuyến nghị `batch_size=128-256`.
 -   **GPU Phổ thông (8GB-16GB)**: 
     -   Bật `gradient_checkpointing=True`.
@@ -346,5 +346,6 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
 
 
