@@ -313,39 +313,39 @@ Dưới đây là kết quả chi tiết trên các tập dữ liệu test của
 #### ViCTSD Dataset
 | Model | Accuracy | Macro F1 |
 | :--- | :---: | :---: |
-| **BERT** (multilingual, cased) | 0.8800 | 0.6886 |
-| **BERT** (multilingual, uncased) | 0.8820 | 0.6569 |
-| **DistilBERT** | 0.8640 | 0.6634 |
-| **XLM-RoBERTa** | 0.8990 | 0.7231 |
-| **PhoBERT** | 0.8750 | 0.7210 |
-| **PhoBERT v2** | 0.8890 | 0.7304 |
-| **viBERT** | 0.8920 | 0.6946 |
-| **ViSoBERT** | 0.9050 | 0.7483 |
+| **ViSoBERT** | 0.9035 | 0.7045 |
+| **XLM-RoBERTa** | 0.9015 | 0.7153 |
+| **PhoBERT v2** | 0.9023 | 0.7139 |
+| **PhoBERT** | 0.9078 | 0.7131 |
+| **BERT** (multilingual, cased) | 0.8983 | 0.6710 |
+| **BERT** (multilingual, uncased) | 0.8993 | 0.6796 |
+| **DistilBERT** | 0.8962 | 0.6850 |
+| **viBERT** | 0.8881 | 0.6765 |
 
 #### ViHOS Dataset
 | Model | Accuracy | Macro F1 |
 | :--- | :---: | :---: |
-| **ViSoBERT** | 0.9231 | 0.9230 |
-| **viBERT** | 0.8590 | 0.8589 |
-| **BERT** (multilingual, uncased) | 0.8707 | 0.8706 |
-| **BERT** (multilingual, cased) | 0.8834 | 0.8832 |
-| **XLM-RoBERTa** | 0.8879 | 0.8878 |
-| **PhoBERT v2** | 0.9033 | 0.9031 |
-| **PhoBERT** | 0.8906 | 0.8903 |
-| **DistilBERT** | 0.8707 | 0.8706 |
+| **ViSoBERT** | 0.9016 | 0.8578 |
+| **XLM-RoBERTa** | 0.8834 | 0.8133 |
+| **PhoBERT v2** | 0.8492 | 0.7351 |
+| **PhoBERT** | 0.8465 | 0.7281 |
+| **BERT** (multilingual, cased) | 0.8601 | 0.7637 |
+| **BERT** (multilingual, uncased) | 0.8520 | 0.7393 |
+| **DistilBERT** | 0.8585 | 0.7615 |
+| **viBERT** | 0.8463 | 0.7291 |
 
 ### Trung bình F1 Macro theo Model (across 3 datasets)
 | Model | ViHSD F1 | ViCTSD F1 | ViHOS F1 | **Average F1** |
 | :--- | :---: | :---: | :---: | :---: |
-| **ViSoBERT** | 0.6871 | 0.7483 | 0.9230 | **0.7861** |
-| **PhoBERT v2** | 0.6583 | 0.7304 | 0.9031 | **0.7639** |
-| **PhoBERT** | 0.6360 | 0.7210 | 0.8903 | **0.7491** |
-| **XLM-RoBERTa** | 0.6544 | 0.7231 | 0.8878 | **0.7551** |
-| **BERT** (cased) | 0.6427 | 0.6886 | 0.8832 | **0.7382** |
-| **viBERT** | 0.6149 | 0.6946 | 0.8589 | **0.7228** |
-| **BERT** (uncased) | 0.6161 | 0.6569 | 0.8706 | **0.7145** |
-| **DistilBERT** | 0.6224 | 0.6634 | 0.8706 | **0.7188** |
-| **Overall Average** | **0.6412** | **0.7033** | **0.8911** | **0.7452** |
+| **ViSoBERT** | 0.6871 | 0.7045 | 0.8578 | **0.7498** |
+| **PhoBERT v2** | 0.6583 | 0.7139 | 0.7351 | **0.7024** |
+| **PhoBERT** | 0.6360 | 0.7131 | 0.7281 | **0.6924** |
+| **XLM-RoBERTa** | 0.6544 | 0.7153 | 0.8133 | **0.7277** |
+| **BERT** (cased) | 0.6427 | 0.6710 | 0.7637 | **0.6925** |
+| **BERT** (uncased) | 0.6161 | 0.6796 | 0.7393 | **0.6783** |
+| **DistilBERT** | 0.6224 | 0.6850 | 0.7615 | **0.6896** |
+| **viBERT** | 0.6149 | 0.6765 | 0.7291 | **0.6735** |
+| **Overall Average** | **0.6412** | **0.6949** | **0.7660** | **0.7007** |
 
 ---
 
@@ -470,6 +470,7 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
 
 
 
