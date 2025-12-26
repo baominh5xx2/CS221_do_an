@@ -305,27 +305,6 @@ Tùy vào cấu hình phần cứng, bạn nên điều chỉnh các tham số s
 
 ---
 
-## 📂 Cấu trúc thư mục
-
-```text
-.
-├── src/                    # Mã nguồn chính (Python)
-├── scripts/                # Bash scripts chạy nhanh
-├── outputs/                # Lưu trữ model checkpoints
-├── results/                # Lưu trữ kết quả đánh giá (CSV)
-└── requirements.txt        # Danh sách thư viện cần thiết
-```
-
----
-
-## ⚠️ Giải quyết sự cố thường gặp
-
-1.  **Lỗi OOM**: Giảm `batch_size`, tăng `gradient_accumulation_steps`, hoặc giảm `max_length`.
-2.  **ModuleNotFoundError**: `pip install -r requirements.txt` và chạy từ thư mục gốc.
-3.  **Tốc độ chậm**: Kiểm tra `dataloader_num_workers` và sử dụng GPU phù hợp.
-
----
-
 ## 📚 Citation
 
 Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòng cite paper sau:
@@ -346,6 +325,7 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
 
 
 
