@@ -1,4 +1,4 @@
-# 🇻🇳 Vietnamese Hate Speech Detection Pipeline
+# Đồ án CS221: VIHATET5: Enhancing Hate Speech Detection in Vietnamese With a Unified Text-to-Text Transformer Model
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Transformers](https://img.shields.io/badge/library-transformers-orange.svg)](https://github.com/huggingface/transformers)
@@ -346,4 +346,5 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
 
