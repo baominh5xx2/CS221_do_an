@@ -219,15 +219,15 @@ Dưới đây là kết quả chi tiết của các mô hình T5 được fine-t
 | **mT5 (Base)** | ViHSD | 0.8746 | 0.8877 | 0.6246 |
 | **mT5 (Base)** | ViCTSD | 0.8932 | 0.9024 | 0.7053 |
 | **mT5 (Base)** | ViHOS | 0.9075 | 0.8957 | 0.8501 |
-| **ViHateT5 (Ours)** | ViHSD | **0.8843** | **0.8919** | **0.6621** |
-| **ViHateT5 (Ours)** | ViCTSD | **0.8630** | **0.8550** | **0.6921** |
-| **ViHateT5 (Ours)** | ViHOS | **0.9103** | **0.9027** | **0.8598** |
+| **ViHateT5 (Ours)** | ViHSD | **0.8815** | **0.8849** | **0.6698** |
+| **ViHateT5 (Ours)** | ViCTSD | **0.9105** | **0.9158** | **0.7189** |
+| **ViHateT5 (Ours)** | ViHOS | **0.9081** | **0.9055** | **0.8616** |
 
 ### Trung bình F1 Macro theo Model T5 (across 3 datasets)
 | Model | ViHSD F1 | ViCTSD F1 | ViHOS F1 | **Average F1** |
 | :--- | :---: | :---: | :---: | :---: |
-| **ViT5 (Base)** | 0.6625 | **0.7163** | **0.8612** | **0.7467** ⭐ |
-| **ViHateT5 (Ours)** | 0.6621 | 0.6921 | 0.8598 | 0.7380 |
+| **ViHateT5 (Ours)** | **0.6698** | **0.7189** | **0.8616** | **0.7501** ⭐ |
+| **ViT5 (Base)** | 0.6625 | 0.7163 | 0.8612 | 0.7467 |
 | **mT5 (Base)** | 0.6246 | 0.7053 | 0.8501 | 0.7267 |
 
 ---
@@ -246,14 +246,14 @@ Dưới đây là kết quả ảnh hưởng của pre-training với các tỉ 
 ### Pre-trained trên 200K samples (Balanced)
 | Dataset | Accuracy | F1 Weighted | F1 Macro |
 | :--- | :---: | :---: | :---: |
-| **ViHSD** | 0.8843 | 0.8919 | 0.6621 |
-| **ViCTSD** | 0.8630 | 0.8550 | 0.6921 |
-| **ViHOS** | 0.9103 | 0.9027 | 0.8598 |
+| **ViHSD** | 0.8815 | 0.8849 | 0.6698 |
+| **ViCTSD** | 0.9105 | 0.9158 | 0.7189 |
+| **ViHOS** | 0.9081 | 0.9055 | 0.8616 |
 
 ### Trung bình F1 Macro theo Pre-training Checkpoint
 | Pre-training Setup | ViHSD F1 | ViCTSD F1 | ViHOS F1 | **Average F1** |
 | :--- | :---: | :---: | :---: | :---: |
-| **ViHateT5 (Ours) - Pre-trained (200K, Balanced)** | 0.6621 | **0.6921** | **0.8598** | **0.7380** ⭐ |
+| **ViHateT5 (Ours) - Pre-trained (200K, Balanced)** | **0.6698** | **0.7189** | **0.8616** | **0.7501** ⭐ |
 | **Pre-trained (100K, Hate-Only)** | 0.6808 | 0.6586 | 0.8541 | 0.7312 |
 
 ---
