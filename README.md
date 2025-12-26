@@ -139,7 +139,7 @@ Mô hình **CS221_Labeling_visobert** được sử dụng để tự động g�
 
 | Metric | Kết quả |
 | :--- | :---: |
-| **Tổng samples đã gán nhãn** | 12,321,518 |
+| **Tổng samples đã gán nhãn** | 10,747,733 |
 | **Agreement với manual labels** | **97.5%** ✅ |
 | **Accuracy** | 97.5% |
 | **Processing Time** | Batch processing on H200 GPU |
@@ -346,3 +346,4 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
