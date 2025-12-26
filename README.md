@@ -80,6 +80,151 @@ Dưới đây là các tài nguyên chính được phát triển trong dự án
 
 ---
 
+## ⚙️ Cấu hình Model & Training Pipeline
+
+Dưới đây là cấu hình chi tiết cho từng giai đoạn huấn luyện trong dự án:
+
+### 1️⃣ **Giai đoạn Pre-training T5 (Span Corruption)**
+
+**Mục tiêu**: Tiếp tục huấn luyện mô hình T5 với cơ chế Span Corruption trên dữ liệu tiếng Việt để tăng khả năng hiểu ngữ cảnh.
+
+**Model Base**: `VietAI/vit5-base` hoặc `google/mt5-base`
+
+**Cấu hình chính**:
+```python
+# Model & Tokenizer
+model_name = "VietAI/vit5-base"
+max_length = 256
+noise_density = 0.15
+mean_noise_span_length = 3.0
+
+# Training Arguments
+per_device_train_batch_size = 128  # Tùy GPU
+gradient_accumulation_steps = 1
+learning_rate = 5e-3
+num_train_epochs = 10
+warmup_steps = 2000
+weight_decay = 0.001
+bf16 = True  # Bật mixed precision cho H200/A100
+
+# Optimizer
+optim = "adamw_torch"
+gradient_checkpointing = True
+```
+
+**Dataset**: 
+- `Minhbao5xx2/re_VOZ-HSD` (split: `hate_only` hoặc `balanced`)
+- Số lượng samples: 100K (hate-only) hoặc 200K (balanced)
+
+**Output**: Checkpoint được lưu tại `vihate_t5_pretrain/` hoặc `--output_dir` tùy chỉnh.
+
+---
+
+### 2️⃣ **Giai đoạn Fine-tuning T5 (Seq2Seq Classification)**
+
+**Mục tiêu**: Fine-tune mô hình T5 (từ checkpoint pre-trained hoặc base) trên các tập dữ liệu hate speech detection.
+
+**Model Base**: 
+- Checkpoint từ giai đoạn 1: `vihate_t5_pretrain/final`
+- Hoặc trực tiếp: `VietAI/vit5-base`
+
+**Cấu hình chính**:
+```python
+# Model & Tokenizer
+pre_trained_checkpoint = "vihate_t5_pretrain/final"  # hoặc "VietAI/vit5-base"
+max_length = 256
+target_max_length = 10  # Độ dài label (CLEAN, HATE, OFFENSIVE...)
+
+# Training Arguments
+per_device_train_batch_size = 32
+per_device_eval_batch_size = 32
+gradient_accumulation_steps = 1
+learning_rate = 2e-4
+num_train_epochs = 4
+warmup_ratio = 0.0
+weight_decay = 0.01
+lr_scheduler_type = "linear"
+bf16 = True
+
+# Evaluation
+evaluation_strategy = "epoch"
+save_strategy = "epoch"
+load_best_model_at_end = True
+metric_for_best_model = "f1_macro"
+```
+
+**Dataset**: 
+- `ViHSD`, `ViCTSD`, `ViHOS` (tự động load từ HuggingFace)
+- Hoặc tập dữ liệu tùy chỉnh
+
+**Output**: Model được lưu tại `outputs/` hoặc `--output_dir` tùy chỉnh.
+
+---
+
+### 3️⃣ **Giai đoạn Training BERT-based Models (Classification)**
+
+**Mục tiêu**: Huấn luyện các mô hình encoder-only (PhoBERT, ViSoBERT) cho bài toán phân loại truyền thống.
+
+**Cấu hình chính**:
+```python
+# Model & Tokenizer
+model_name = "uitnlp/visobert"
+max_length = 256
+num_labels = 3  # Tùy dataset (ViHSD: 3, ViCTSD: 2, ViHOS: 2)
+
+# Training Arguments
+per_device_train_batch_size = 16
+per_device_eval_batch_size = 32
+gradient_accumulation_steps = 1
+learning_rate = 2e-5
+num_train_epochs = 10
+warmup_ratio = 0.1
+weight_decay = 0.01
+patience = 3  # Early stopping
+
+# Optimizer
+optim = "adamw_torch"
+```
+
+**Dataset**: 
+- `ViHSD`, `ViCTSD`, `ViHOS`
+- Tự động xử lý label encoding
+
+**Output**: Model được lưu tại `outputs/` hoặc `--output_dir` tùy chỉnh.
+
+---
+
+### 4️⃣ **Giai đoạn Auto-Labeling (Optional)**
+
+**Mục tiêu**: Sử dụng mô hình đã huấn luyện để gán nhãn tự động cho tập dữ liệu lớn.
+
+**Model**: `Minhbao5xx2/CS221_Labeling_visobert`
+
+**Cấu hình chính**:
+```python
+# Model & Tokenizer
+model_name = "Minhbao5xx2/CS221_Labeling_visobert"
+max_length = 256
+batch_size = 128 
+```
+
+**Dataset Input**: Dữ liệu thô (CSV, JSON, Parquet)
+
+**Output**: Dataset đã gán nhãn được đẩy lên HuggingFace Hub.
+
+---
+
+### 📊 **So sánh cấu hình giữa các giai đoạn**
+
+| Giai đoạn | Model Base | Batch Size | Learning Rate | Epochs | Optimizer |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Pre-training T5** | vit5-base | 128 | 5e-3 | 10 | adamw_torch |
+| **Fine-tuning T5** | Pre-trained checkpoint | 32 | 2e-4 | 4 | adamw_torch |
+| **Training BERT** | phobert/visobert | 16 | 2e-5 | 10 | adamw_torch |
+| **Auto-Labeling** | visobert (fine-tuned) | 128 | - | - | - |
+
+---
+
 ## 🚀 Hướng dẫn sử dụng (Scripts)
 
 ### 1. Pre-training T5 (Span Corruption)
@@ -325,6 +470,7 @@ Nếu bạn sử dụng code, dataset hoặc model trong nghiên cứu, vui lòn
 ---
 
 © 2024 Vietnamese Hate Speech Team. Dự án phục vụ mục đích nghiên cứu.
+
 
 
 
